@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Vincent Bruijn <vebruijn@gmail.com>"]
 description = "Serve a directory as document root over a given port. This is a development tool."
+homepage = "https://github.com/y-a-v-a/msaada"
+repository = "https://github.com/y-a-v-a/msaada"
+readme = "README.md"
+categories = ["command-line-utilities"]
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
