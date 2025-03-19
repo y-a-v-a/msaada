@@ -1,0 +1,9 @@
+[2025-03-19T16:45:49Z INFO  msaada] starting HTTP server at http://localhost:3099
+[2025-03-19T16:45:52Z INFO  msaada] Received POST request to path: api/test-json
+[2025-03-19T16:45:52Z INFO  msaada] POST /api/test-json HTTP/1.1 200 95 0.170000
+[2025-03-19T16:45:52Z INFO  msaada] Received POST request to path: api/test-form
+[2025-03-19T16:45:52Z INFO  msaada] POST /api/test-form HTTP/1.1 200 119 0.276000
+[2025-03-19T16:45:52Z INFO  msaada] Received POST request to path: api/test-text
+[2025-03-19T16:45:52Z INFO  msaada] POST /api/test-text HTTP/1.1 200 92 0.053000
+[2025-03-19T16:45:56Z INFO  msaada] GET / HTTP/1.1 404 0 0.030000
+[2025-03-19T16:46:34Z INFO  msaada] GET / HTTP/1.1 404 0 0.077000

@@ -10,6 +10,7 @@ A lightweight HTTP server for local web development. Easily serve static files f
 - 🔌 **Easy to Use**: Simple command-line interface
 - 🔧 **Flexible**: Serve any directory of your choice
 - 📝 **Auto-initialize**: Optionally create basic HTML, CSS, and JavaScript files
+- 🔄 **POST Echo**: Accepts POST requests and returns the data as JSON
 - 🛡️ **Development Only**: Designed for local development environments
 
 ## Installation
@@ -45,6 +46,9 @@ msaada --port 3000 --dir /path/to/empty/dir --init
 
 # Get help
 msaada --help
+
+# Enable the self-test endpoint to verify POST functionality
+msaada --port 3000 --dir . --test
 ```
 
 ## Examples
@@ -81,6 +85,77 @@ This creates:
 # Serve your documentation folder
 msaada --port 8080 --dir ./docs
 ```
+
+### Testing API endpoints
+
+The server can be used as a simple echo server for development. It accepts POST requests and returns the data as JSON:
+
+```bash
+# Send a POST request and get the data back as JSON
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name":"John","age":30}' \
+  http://localhost:3000/api/test
+```
+
+Response:
+```json
+{
+  "path": "/api/test",
+  "content_type": "application/json",
+  "json_data": {
+    "name": "John",
+    "age": 30
+  }
+}
+```
+
+#### Supported POST formats
+
+- **JSON**: `application/json`
+- **Form Data**: `application/x-www-form-urlencoded`
+- **Multipart Forms**: `multipart/form-data` (with file upload support)
+- **Plain Text**: `text/plain`
+- **Other Binary Data**: Any other content type
+
+#### Testing POST functionality
+
+Two testing methods are provided:
+
+1. **Comprehensive Test Environment**:
+
+   ```bash
+   # Run the comprehensive test suite (starts a server automatically)
+   ./tests/run_test.sh
+   ```
+
+   This script:
+   - Starts a msaada server on port 3099
+   - Runs automated tests with curl
+   - Provides a browser-based test interface
+   - Shows detailed test results
+
+2. **Simple CLI Test**:
+
+   ```bash
+   # Run a simple test against a running server
+   ./tests/test_post.sh
+
+   # Or specify a custom port
+   ./tests/test_post.sh 8080
+   ```
+
+3. **Self-Test Endpoint**:
+
+   When running with the `--test` flag, a self-test endpoint is available:
+
+   ```bash
+   # Start server with self-test enabled
+   msaada --port 3000 --dir . --test
+
+   # Then visit this URL in your browser
+   http://localhost:3000/self-test
+   ```
 
 ## Notes
 
