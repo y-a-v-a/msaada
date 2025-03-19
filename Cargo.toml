@@ -1,6 +1,6 @@
 [package]
 name = "msaada"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Vincent Bruijn <vebruijn@gmail.com>"]
 description = "Serve a directory as document root over a given port. This is a development tool."
