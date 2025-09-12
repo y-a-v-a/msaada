@@ -1,12 +1,14 @@
 # MSAADA - Rust Project Guidelines
 
-> "Msaada" is Swahili for "service/servant" - A simple HTTP server for local development
+> "Msaada" is Swahili for "service/servant" - A powerful HTTP server for local development
 
 ## Build & Test Commands
+
 - Build: `cargo build`
 - Run: `cargo run -- --port <PORT> --dir <DIRECTORY>`
-- Run and initialize files: `cargo run -- --port <PORT> --dir <DIRECTORY> --init`
-- Run with self-test: `cargo run -- --port <PORT> --dir <DIRECTORY> --test`
+- Run with HTTPS: `cargo run -- --port <PORT> --dir <DIRECTORY> --ssl-cert <CERT> --ssl-key <KEY>`
+- Run with config: `cargo run -- --port <PORT> --dir <DIRECTORY> --config serve.json`
+- Run SPA mode: `cargo run -- --port <PORT> --dir <DIRECTORY> --single`
 - Release build: `cargo build --release`
 - Package for distribution: `./package.sh`
 - Comprehensive testing: `./tests/run_test.sh`
@@ -19,6 +21,7 @@
 - Update dependencies: `cargo update`
 
 ## Code Style Guidelines
+
 - **Imports**: Group std imports first, then external crates, then local modules
 - **Formatting**: Use rustfmt (run `cargo fmt` before commits)
 - **Error Handling**: Use Result/Option types with pattern matching; avoid unwrap() in production code
@@ -28,180 +31,337 @@
   - SCREAMING_CASE for constants
 - **Documentation**: Document public APIs with /// comments
 - **Type Safety**: Use Rust's strong type system; avoid `as` casts when possible
-- **Logging**: Use the `log` crate macros (info!, error!, etc.) for logging
+- **Logging**: Use the structured logger module with colored output
 
-## Project Features
-- Simple HTTP server for local development
-- Serves static files from a specified directory
-- Command-line interface with the following arguments:
-  - `--port/-p`: Port number to serve on (required)
-  - `--dir/-d`: Directory to serve files from (required)
-  - `--init`: Initialize basic web files in the directory (optional)
-  - `--test`: Enable the self-test endpoint (optional)
-- Can auto-create basic web files:
-  - HTML file (src/index_template.html)
-  - CSS file (src/style_template.css)
-  - JavaScript file (src/main_template.js)
-- Handles POST requests and returns data as JSON:
-  - Multipart form data (including file uploads)
-  - JSON data
-  - URL-encoded form data
-  - Plain text
-  - Binary data
-- Custom response headers:
-  - `X-Server`: Server name and version (msaada/0.1.0)
-  - `X-Powered-By`: Server name (msaada)
-  - `X-Version`: Server version (0.1.0)
+## Module Architecture
 
-## Usage Examples
+### Core Modules
 
-```bash
-# Serve the current directory on port 3000 
-msaada --port 3000 --dir .
+- **`main.rs`** - Application entry point, CLI parsing, server initialization
+- **`clipboard.rs`** - Clipboard integration for copying server URLs
+- **`config.rs`** - Configuration file parsing (serve.json, package.json, now.json)
+- **`logger.rs`** - Structured logging with colors and timestamps
+- **`network.rs`** - Port availability checking and network utilities
+- **`shutdown.rs`** - Graceful shutdown handling for SIGINT/SIGTERM
+- **`spa.rs`** - Single Page Application support utilities
+- **`tls.rs`** - SSL/TLS certificate loading and configuration
 
-# Serve a specific project folder on port 8080
-msaada --port 8080 --dir /path/to/project
+### Template Files
 
-# Initialize basic web files in a directory and serve it
-msaada --port 3000 --dir /path/to/empty/folder --init
-```
+- **`index_template.html`** - Template for generated HTML file
+- **`style_template.css`** - Template for generated CSS file
+- **`main_template.js`** - Template for generated JavaScript file
 
-## Project Structure
-- `src/main.rs` - Main application code
-- `src/index_template.html` - Template for generated HTML file
-- `src/style_template.css` - Template for generated CSS file
-- `src/main_template.js` - Template for generated JavaScript file
-- `package.sh` - Script to build and package for distribution
-- `tests/` - Test infrastructure directory
-  - `run_test.sh` - Comprehensive testing script
-  - `test_post.sh` - Simple CLI test script
-  - `test_server/` - Test files for browser-based testing
+## Complete Feature Set
 
-## Troubleshooting
+### Core Features
+- HTTP/HTTPS server with Actix-web
+- Static file serving from specified directory
+- POST request handling with JSON echo response
+- Template file initialization (--init flag)
+- Self-test endpoint for POST validation
 
-- **Port already in use**: If you get "address already in use" errors, try a different port
-- **Permission denied**: Ensure you have read/write permissions for the directory you're serving
-- **Missing index.html**: Either create one manually or use the `--init` flag to generate one automatically
-- **405 Method Not Allowed**: This error indicates a routing problem
-  - Check if the server was started with the latest version
-  - Ensure your POST requests are being made to the correct endpoint
-  - Run the test script to verify POST functionality: `./tests/run_test.sh`
-- **404 Not Found**: Make sure you're using the correct port in your requests
-  - The server only listens on the specified port (e.g., 3000)
-  - Make sure files exist in the directory being served
+### Advanced Features
+
+#### SSL/TLS Support
+- PEM format certificates (separate cert and key files)
+- PKCS12/PFX format certificates (combined file)
+- Passphrase support for encrypted certificates
+- Automatic format detection based on file extension
+
+#### Configuration System
+- JSON configuration file support
+- Multiple config file formats: serve.json, now.json, package.json
+- Configuration precedence rules
+- Schema validation with helpful error messages
+- Custom config path via --config flag
+
+#### Logging & Monitoring
+- Colored terminal output with log levels (INFO, WARN, ERROR)
+- Timestamp formatting for all messages
+- Request/response logging with timing
+- Configurable via --no-request-logging flag
+
+#### Network Features
+- CORS support with configurable headers
+- Gzip compression (enabled by default)
+- Port availability checking
+- Automatic port switching when occupied
+- Network interface detection for external IP
+
+#### Web Development Features
+- Single Page Application (SPA) mode
+- ETag and Last-Modified caching headers
+- Symlinks support
+- Clean URLs and trailing slash handling
+- URL rewrites and redirects (via config)
+
+#### User Experience
+- Clipboard integration (auto-copy server URL)
+- Colored server startup messages
+- Graceful shutdown on signals
+- Smart error messages and hints
+
+## CLI Arguments Reference
+
+### Required Arguments
+- `--port, -p <PORT>` - Port number to serve on
+- `--dir, -d <DIRECTORY>` - Directory to serve files from
+
+### Optional Arguments
+
+#### Basic Options
+- `--init` - Initialize basic web files (index.html, style.css, main.js)
+- `--test` - Enable self-test endpoint at /self-test
+- `--config <PATH>` - Specify custom path to configuration file
+
+#### SSL/TLS Options
+- `--ssl-cert <PATH>` - Path to SSL/TLS certificate (PEM or PKCS12)
+- `--ssl-key <PATH>` - Path to private key (for PEM certificates)
+- `--ssl-pass <PATH>` - Path to passphrase file
+
+#### Web Features
+- `--cors` - Enable CORS headers
+- `--single` - SPA mode (rewrite not-found to index.html)
+- `--no-compression` - Disable gzip compression
+- `--symlinks` - Follow symbolic links
+- `--no-etag` - Use Last-Modified instead of ETag
+
+#### Development Options
+- `--no-request-logging` - Disable request logging
+- `--no-clipboard` - Don't copy URL to clipboard
+- `--no-port-switching` - Don't auto-switch ports
 
 ## Dependencies
-- `actix-web` & `actix-files` - Web server framework
+
+### Web Framework
+- `actix-web` - Core web server framework
+- `actix-files` - Static file serving
 - `actix-multipart` - Multipart form handling
+- `actix-cors` - CORS middleware
+- `awc` - Actix Web Client for self-testing
+
+### TLS/Security
+- `rustls` - TLS implementation
+- `rustls-pemfile` - PEM file parsing
+- `tokio-rustls` - Async TLS
+- `p12` - PKCS12 certificate support
+- `actix-web-httpauth` - HTTP authentication
+
+### Configuration & Parsing
 - `clap` - Command-line argument parsing
-- `log` & `env_logger` - Logging utilities
-- `serde` & `serde_json` - JSON serialization/deserialization
-- `futures-util` - Async utilities
+- `serde` & `serde_json` - JSON serialization
+- `jsonschema` - JSON schema validation
 - `mime` - MIME type handling
 - `urlencoding` - URL encoding/decoding
 
-## POST Request API
+### Utilities
+- `tokio` - Async runtime
+- `futures-util` - Async utilities
+- `bytes` - Byte buffer utilities
+- `chrono` - Date and time handling
+- `colored` - Terminal colors
+- `clipboard` - Clipboard access
+- `port_check` - Port availability checking
+- `local-ip-address` - Network interface detection
+- `flate2` - Compression support
+- `signal-hook` & `signal-hook-tokio` - Signal handling
+- `atty` - Terminal detection
 
-The server can handle POST requests to any endpoint and will return the data as JSON:
+### Development
+- `env_logger` & `log` - Logging framework
+- `tempfile` - Temporary file handling (dev dependency)
 
-### Example POST request:
+## Configuration File Format
 
-```bash
-# Using curl to send a multipart form with a file
-curl -X POST \
-  -F "name=John Smith" \
-  -F "message=Hello from curl" \
-  -F "file=@/path/to/file.txt" \
-  http://localhost:3000/api/test
-```
-
-### Response Format:
+### serve.json Example
 
 ```json
 {
-  "path": "/api/test",
-  "content_type": "multipart/form-data; boundary=...",
-  "form_data": {
-    "name": "John Smith",
-    "message": "Hello from curl"
-  },
+  "public": "dist",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "**/*.@(jpg|jpeg|gif|png)",
+      "headers": [
+        { "key": "Cache-Control", "value": "max-age=7200" }
+      ]
+    }
+  ],
+  "directoryListing": false,
+  "etag": true,
+  "symlinks": false,
+  "compress": true
+}
+```
+
+### Configuration Precedence
+
+1. Command-line arguments (highest priority)
+2. serve.json (if exists)
+3. now.json (if exists)
+4. package.json "static" field (if exists)
+5. Default values (lowest priority)
+
+## POST Request API
+
+### Endpoint
+Any path accepts POST requests and returns data as JSON.
+
+### Supported Content Types
+1. **JSON**: `application/json`
+2. **Form Data**: `application/x-www-form-urlencoded`
+3. **Multipart Form**: `multipart/form-data` (with file uploads)
+4. **Plain Text**: `text/plain`
+5. **Binary**: Any other content type
+
+### Response Format
+
+```json
+{
+  "path": "/api/endpoint",
+  "content_type": "application/json",
+  "json_data": { ... },
+  "form_data": { ... },
+  "text_data": "...",
   "files": [
     {
-      "field_name": "file",
-      "filename": "file.txt"
+      "field_name": "upload",
+      "filename": "document.pdf"
     }
   ]
 }
 ```
 
-Note: The server does not actually save uploaded files - it only returns their filenames in the JSON response.
+## Testing
 
-### Testing POST Functionality
-
-#### Automated Testing
-
+### Unit Tests
+Each module includes unit tests. Run with:
 ```bash
-# Run the comprehensive test suite (starts server on port 3099)
-./tests/run_test.sh
-
-# The script will:
-# 1. Start the server on a dedicated port (3099)
-# 2. Run tests for various content types
-# 3. Keep the server running for manual testing
-# 4. Provide a browser-based test interface
+cargo test                 # All tests
+cargo test config::        # Module tests
+cargo test -- --nocapture  # With output
 ```
 
-#### Browser-Based Testing
-
-After running `./tests/run_test.sh`, open your browser to:
+### Integration Tests
+```bash
+./tests/run_test.sh        # Full test suite
+./tests/test_post.sh 3000  # POST endpoint test
 ```
-http://localhost:3099
+
+### Manual Testing
+```bash
+# Start with test endpoint
+cargo run -- --port 3000 --dir . --test
+
+# Visit in browser
+http://localhost:3000/self-test
 ```
 
-This provides an interactive interface for testing:
-- Form submission with file upload
-- JSON POST requests
-- Plain text POST requests
+## Troubleshooting
 
-#### Supported Content Types
+### Common Issues
 
-1. **JSON**: `application/json`
-2. **Form Data**: `application/x-www-form-urlencoded`
-3. **Multipart Form**: `multipart/form-data` (with file uploads)
-4. **Plain Text**: `text/plain`
-5. **Other**: Any other content type (treated as binary)
+1. **Port Already in Use**
+   - Server auto-switches to available port
+   - Use `--no-port-switching` to force specific port
+
+2. **Certificate Errors**
+   - Verify certificate format (PEM vs PKCS12)
+   - Check file paths are correct
+   - Ensure private key matches certificate
+
+3. **Configuration Not Loading**
+   - Check JSON syntax is valid
+   - Verify file is named correctly (serve.json)
+   - Use `--config` to specify custom path
+
+4. **SPA Routing Issues**
+   - Enable `--single` flag for client-side routing
+   - Configure rewrites in serve.json if needed
+
+5. **CORS Errors**
+   - Add `--cors` flag to enable CORS headers
+   - Configure specific origins in serve.json
 
 ## Architecture Details
 
-- **Request Handling**: 
-  - Uses Actix's route handlers with specific routing order (wildcard POST handler registered after specific routes)
-  - Static file serving via actix-files integration
-  - Middleware for custom header injection
-  
-- **POST Processing Pipeline**:
-  - Content-type based branching in `handle_post()` function
-  - Specialized handling for different content types
-  - No persistent storage of uploaded files
-  - Automatic serialization of response data to JSON
+### Request Flow
+1. Request received by Actix-web server
+2. Middleware processing (CORS, compression, headers)
+3. Route matching (POST handler or static files)
+4. Response generation with appropriate headers
+5. Logging and metrics collection
 
-- **Custom Header Implementation**:
-  - Uses Actix's DefaultHeaders middleware
-  - Headers generated from Cargo environment variables (package name/version)
-  - Consistent application across all response types
+### Module Responsibilities
+
+- **Core Server** (`main.rs`): Initialization, routing, middleware setup
+- **Configuration** (`config.rs`): File parsing, validation, precedence
+- **Logging** (`logger.rs`): Structured output, formatting, colors
+- **Network** (`network.rs`): Port management, IP detection
+- **TLS** (`tls.rs`): Certificate loading, format detection
+- **Shutdown** (`shutdown.rs`): Signal handling, cleanup
+- **SPA** (`spa.rs`): Route rewriting, fallback handling
+- **Clipboard** (`clipboard.rs`): Cross-platform clipboard access
+
+### Error Handling Strategy
+
+- Use custom error types for each module
+- Propagate errors with `?` operator
+- Provide helpful error messages to users
+- Log errors with appropriate severity levels
+- Graceful fallbacks where possible
 
 ## Future Development
 
-- **Testing Improvements**:
-  - Add unit tests using Rust's built-in testing framework
-  - Create tests for POST handler with different content types
-  - Test template file generation logic
-  - Test command line argument parsing
-  - Test middleware behavior
+### Planned Features
+- Directory listing UI with customizable templates
+- WebSocket support for live reload
+- Request/response middleware plugins
+- Authentication and authorization options
+- Metrics and monitoring endpoints
+- HTTP/2 and HTTP/3 support
 
-- **Feature Enhancements**:
-  - Security review for file upload handling
-  - Support for more content types
-  - Configuration file support
-  - More sophisticated routing capabilities
-  - Optional authentication for certain operations
-  - HTTPS support
+### Performance Optimizations
+- Caching layer for frequently accessed files
+- Connection pooling for keep-alive
+- Optimized static file serving
+- Memory-mapped file support
+
+### Security Enhancements
+- Rate limiting middleware
+- Security headers by default
+- CSP (Content Security Policy) support
+- Request validation and sanitization
+
+## Contributing Guidelines
+
+1. **Code Quality**
+   - Run `cargo fmt` before committing
+   - Run `cargo clippy` and fix warnings
+   - Add tests for new functionality
+   - Update documentation
+
+2. **Pull Requests**
+   - Create feature branch from main
+   - Write descriptive commit messages
+   - Include tests and documentation
+   - Ensure CI passes
+
+3. **Testing Requirements**
+   - Unit tests for new modules
+   - Integration tests for features
+   - Manual testing checklist
+   - Performance benchmarks for critical paths
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Copyright
+
+Copyright © 2022-2025 Vincent Bruijn (vebruijn@gmail.com)

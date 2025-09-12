@@ -14,7 +14,7 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4"
+actix-web = { version = "4", features = ["rustls-0_21"] }
 actix-files = "0.6"
 actix-multipart = "0.6"
 awc = "3" # Actix Web Client for self-testing
@@ -27,6 +27,28 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 urlencoding = "2.1"
 bytes = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+
+# New dependencies for enhanced features
+actix-web-httpauth = "0.8"
+rustls = "0.21"
+rustls-pemfile = "1.0"
+tokio-rustls = "0.24"
+colored = "2.0"
+jsonschema = "0.17"
+port_check = "0.1"
+clipboard = "0.5"
+local-ip-address = "0.5"
+chrono = { version = "0.4", features = ["serde"] }
+actix-cors = "0.6"
+flate2 = "1.0"
+signal-hook = "0.3"
+signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
+atty = "0.2"
+p12 = "0.6"
+
+[dev-dependencies]
+tempfile = "3.0"
 
 [profile.release]
 opt-level = 3

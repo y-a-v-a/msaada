@@ -2,16 +2,25 @@
 
 > "Msaada" is Swahili for "service/servant"
 
-A lightweight HTTP server for local web development. Easily serve static files from any directory on your local machine.
+A powerful, lightweight HTTP server for local web development. Easily serve static files from any directory with advanced features like HTTPS support, SPA routing, and automatic configuration.
 
 ## Features
 
-- 🚀 **Fast & Lightweight**: Minimal overhead for quick development
-- 🔌 **Easy to Use**: Simple command-line interface
-- 🔧 **Flexible**: Serve any directory of your choice
-- 📝 **Auto-initialize**: Optionally create basic HTML, CSS, and JavaScript files
-- 🔄 **POST Echo**: Accepts POST requests and returns the data as JSON
-- 🛡️ **Development Only**: Designed for local development environments
+- 🚀 **Fast & Lightweight**: Built with Rust and Actix-web for optimal performance
+- 🔒 **HTTPS/SSL Support**: Serve over HTTPS with PEM or PKCS12 certificates
+- ⚙️ **Configuration Files**: Support for serve.json, package.json, and now.json configs
+- 🎨 **Colored Logging**: Beautiful terminal output with timestamps and color coding
+- 🌐 **CORS Support**: Enable cross-origin requests for API development
+- 📦 **Gzip Compression**: Automatic response compression for faster transfers
+- 🚦 **Smart Port Management**: Automatic port switching when ports are occupied
+- 📋 **Clipboard Integration**: Automatically copy server URL to clipboard
+- 🏃 **SPA Support**: Single Page Application routing with --single flag
+- ⚡ **ETag/Caching**: Smart caching with ETag and Last-Modified headers
+- 🔗 **Symlinks Support**: Follow symbolic links in your file system
+- 🛑 **Graceful Shutdown**: Clean server shutdown on SIGINT/SIGTERM
+- 📝 **Auto-Initialize**: Create basic HTML, CSS, and JavaScript files
+- 🔄 **POST Echo**: Accept POST requests and return data as JSON
+- 🛡️ **Development Focused**: Optimized for local development workflows
 
 ## Installation
 
@@ -34,64 +43,155 @@ cargo build --release
 
 ## Usage
 
+### Basic Usage
+
 ```bash
-# Basic usage: serve the current directory on port 3000
+# Serve the current directory on port 3000
 msaada --port 3000 --dir .
 
 # Serve a specific directory on port 8080
 msaada --port 8080 --dir /path/to/website
 
-# Initialize basic web files (HTML, CSS, JS) and serve the directory
+# Initialize basic web files and serve
 msaada --port 3000 --dir /path/to/empty/dir --init
+```
 
-# Get help
-msaada --help
+### Advanced Usage
 
-# Enable the self-test endpoint to verify POST functionality
-msaada --port 3000 --dir . --test
+```bash
+# Serve with HTTPS
+msaada --port 443 --dir . \
+  --ssl-cert /path/to/cert.pem \
+  --ssl-key /path/to/key.pem
+
+# Single Page Application with CORS
+msaada --port 3000 --dir ./dist \
+  --single \
+  --cors
+
+# Development server with all features
+msaada --port 3000 --dir ./src \
+  --cors \
+  --single \
+  --no-clipboard
+```
+
+## Command-Line Options
+
+### Basic Options
+
+- `--port, -p <PORT>` - Port number to serve on (required)
+- `--dir, -d <DIRECTORY>` - Directory to serve files from (required)
+- `--init` - Initialize basic web files (index.html, style.css, main.js)
+- `--test` - Enable self-test endpoint at /self-test
+- `--config <PATH>` - Specify custom path to serve.json configuration file
+
+### SSL/TLS Options
+
+- `--ssl-cert <PATH>` - Path to SSL/TLS certificate (PEM or PKCS12 format)
+- `--ssl-key <PATH>` - Path to SSL/TLS private key (for PEM certificates)
+- `--ssl-pass <PATH>` - Path to file containing certificate passphrase
+
+### Web Features
+
+- `--cors` - Enable CORS headers (Access-Control-Allow-Origin: *)
+- `--single` - SPA mode: rewrite all not-found requests to index.html
+- `--no-compression` - Disable gzip compression
+- `--symlinks` - Follow symbolic links instead of showing 404
+- `--no-etag` - Use Last-Modified header instead of ETag for caching
+
+### Development Options
+
+- `--no-request-logging` - Disable request logging to console
+- `--no-clipboard` - Don't copy server URL to clipboard
+- `--no-port-switching` - Don't switch ports when specified port is taken
+
+## Configuration Files
+
+Msaada supports configuration through JSON files with the following precedence:
+
+1. `serve.json` (highest priority)
+2. `now.json`
+3. `package.json` (under "static" field)
+
+### Example serve.json
+
+```json
+{
+  "public": "dist",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "**/*.@(jpg|jpeg|gif|png)",
+      "headers": [
+        { "key": "Cache-Control", "value": "max-age=7200" }
+      ]
+    }
+  ],
+  "directoryListing": false
+}
 ```
 
 ## Examples
 
-### Quick static file server
+### HTTPS Development Server
 
 ```bash
-# Navigate to your project
-cd ~/my-web-project
+# Generate self-signed certificate (for development only)
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
 
-# Serve it on port 3000
-msaada --port 3000 --dir .
+# Serve with HTTPS
+msaada --port 443 --dir ./public \
+  --ssl-cert cert.pem \
+  --ssl-key key.pem
 ```
 
-### Creating a new project from scratch
+### React/Vue/Angular Development
 
 ```bash
-# Create and navigate to a new directory
-mkdir ~/new-project
-cd ~/new-project
-
-# Initialize basic web files and serve them
-msaada --port 3000 --dir . --init
+# Serve SPA with hot-reload friendly settings
+msaada --port 3000 --dir ./build \
+  --single \
+  --cors \
+  --no-etag
 ```
 
-This creates:
-- `index.html` - A basic HTML file
-- `style.css` - CSS styles for the page
-- `main.js` - JavaScript with some interactivity
-
-### Previewing documentation
+### API Mock Server
 
 ```bash
-# Serve your documentation folder
+# Enable CORS and logging for API development
+msaada --port 8080 --dir ./mocks \
+  --cors \
+  --test
+```
+
+### Static Documentation Site
+
+```bash
+# Serve docs with compression and caching
 msaada --port 8080 --dir ./docs
+# Compression and ETag are enabled by default
 ```
 
-### Testing API endpoints
+## POST Request Handling
 
-The server can be used as a simple echo server for development. It accepts POST requests and returns the data as JSON:
+The server accepts POST requests and echoes them back as JSON:
+
+### Supported Content Types
+
+- **JSON**: `application/json`
+- **Form Data**: `application/x-www-form-urlencoded`
+- **Multipart Forms**: `multipart/form-data` (with file uploads)
+- **Plain Text**: `text/plain`
+- **Binary Data**: Any other content type
+
+### Example POST Request
 
 ```bash
-# Send a POST request and get the data back as JSON
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"name":"John","age":30}' \
@@ -110,58 +210,91 @@ Response:
 }
 ```
 
-#### Supported POST formats
+## Testing
 
-- **JSON**: `application/json`
-- **Form Data**: `application/x-www-form-urlencoded`
-- **Multipart Forms**: `multipart/form-data` (with file upload support)
-- **Plain Text**: `text/plain`
-- **Other Binary Data**: Any other content type
+### Run Tests
 
-#### Testing POST functionality
+```bash
+# Run all tests
+cargo test
 
-Two testing methods are provided:
+# Run specific test
+cargo test test_name
 
-1. **Comprehensive Test Environment**:
+# Run with output
+cargo test -- --nocapture
+```
 
-   ```bash
-   # Run the comprehensive test suite (starts a server automatically)
-   ./tests/run_test.sh
-   ```
+### Test POST Functionality
 
-   This script:
-   - Starts a msaada server on port 3099
-   - Runs automated tests with curl
-   - Provides a browser-based test interface
-   - Shows detailed test results
+```bash
+# Comprehensive test suite
+./tests/run_test.sh
 
-2. **Simple CLI Test**:
+# Simple POST test
+./tests/test_post.sh 3000
+```
 
-   ```bash
-   # Run a simple test against a running server
-   ./tests/test_post.sh
+## Architecture
 
-   # Or specify a custom port
-   ./tests/test_post.sh 8080
-   ```
+Msaada is built with a modular architecture:
 
-3. **Self-Test Endpoint**:
+- **Core Server**: Actix-web based HTTP/HTTPS server
+- **File Serving**: Static file serving with actix-files
+- **Configuration**: JSON-based configuration system
+- **Logging**: Structured, colored logging system
+- **Network**: Port management and network utilities
+- **TLS**: SSL/TLS certificate handling
+- **Middleware**: CORS, compression, headers
+- **Utilities**: Clipboard, SPA support, graceful shutdown
 
-   When running with the `--test` flag, a self-test endpoint is available:
+## Security Notes
 
-   ```bash
-   # Start server with self-test enabled
-   msaada --port 3000 --dir . --test
+- This server is intended for **development use only**
+- By default, binds to localhost for security
+- HTTPS support uses standard TLS libraries
+- No authentication or authorization built-in
+- File serving is restricted to specified directory
 
-   # Then visit this URL in your browser
-   http://localhost:3000/self-test
-   ```
+## Troubleshooting
 
-## Notes
+### Port Already in Use
 
-- This is intended for **development use only** and is not suitable for production environments
-- The server binds to `127.0.0.1` (localhost) for security reasons
-- All file paths are relative to the specified directory
+The server will automatically try another port unless `--no-port-switching` is used:
+```bash
+# Let server find available port
+msaada --port 3000 --dir .
+
+# Force specific port
+msaada --port 3000 --dir . --no-port-switching
+```
+
+### Certificate Issues
+
+For PKCS12 certificates:
+```bash
+msaada --port 443 --dir . \
+  --ssl-cert certificate.pfx \
+  --ssl-pass passphrase.txt
+```
+
+For PEM certificates:
+```bash
+msaada --port 443 --dir . \
+  --ssl-cert cert.pem \
+  --ssl-key key.pem
+```
+
+### SPA Routing Issues
+
+Enable SPA mode for client-side routing:
+```bash
+msaada --port 3000 --dir ./dist --single
+```
+
+## Contributing
+
+Contributions are welcome! Please read the [CLAUDE.md](CLAUDE.md) file for development guidelines.
 
 ## License
 

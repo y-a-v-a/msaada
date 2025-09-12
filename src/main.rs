@@ -1,9 +1,18 @@
+mod clipboard;
+mod config;
+mod logger;
+mod network;
+mod shutdown;
+mod spa;
+mod tls;
+
 use actix_files::Files;
 use actix_web::{
-    middleware::{Logger, DefaultHeaders}, 
+    middleware::{Logger, DefaultHeaders, Compress}, 
     web, App, Error, HttpRequest, HttpResponse, HttpServer, 
     Responder, post, get
 };
+use actix_cors::Cors;
 use actix_multipart::Multipart;
 use clap::Arg;
 use clap::Command;
@@ -263,57 +272,199 @@ async fn main() -> std::io::Result<()> {
     const CSS_TEMPLATE: &str = include_str!("style_template.css");
     const JS_TEMPLATE: &str = include_str!("main_template.js");
     
-    // Log startup information
-    println!("Starting {} v{} by {}", PKG_NAME, PKG_VERSION, PKG_AUTHORS);
-    
     let key = "RUST_LOG";
     env::set_var(key, "msaada=info");
 
     let matches = Command::new("Msaada")
+        .version(env!("CARGO_PKG_VERSION"))
+        .author("Vincent Bruijn <vebruijn@gmail.com>")
+        .about("A powerful HTTP server for local web development - serve static files with advanced features")
+        .long_about("Msaada ('service' in Swahili) is a lightweight yet feature-rich HTTP server designed for local web development.\n\nFeatures include HTTPS support, SPA routing, CORS, compression, automatic port switching, and more.\n\nFor detailed documentation, visit: https://github.com/y-a-v-a/msaada")
         .arg(
             Arg::new("port")
                 .short('p')
                 .long("port")
                 .required(true)
-                .help("The port number to use"),
+                .help("Port number to serve on (e.g., 3000, 8080)"),
         )
         .arg(
             Arg::new("directory")
                 .short('d')
                 .long("dir")
                 .required(true)
-                .help("The directory to serve from"),
+                .help("Directory to serve static files from (defaults to current directory)"),
         )
         .arg(
             Arg::new("init")
                 .long("init")
                 .required(false)
                 .action(clap::ArgAction::SetTrue)
-                .help("Initialize a basic webpage (index.html, style.css, main.js) in the specified directory"),
+                .help("Create starter web files (index.html, style.css, main.js) in the directory"),
         )
         .arg(
             Arg::new("test")
                 .long("test")
                 .required(false)
                 .action(clap::ArgAction::SetTrue)
-                .help("Enable self-test endpoint at /self-test to verify POST handler functionality"),
+                .help("Enable self-test endpoint at /self-test for POST request testing"),
+        )
+        .arg(
+            Arg::new("config")
+                .short('c')
+                .long("config")
+                .value_name("FILE")
+                .help("Path to configuration file (serve.json, now.json, or package.json)"),
+        )
+        .arg(
+            Arg::new("no-request-logging")
+                .short('L')
+                .long("no-request-logging")
+                .action(clap::ArgAction::SetTrue)
+                .help("Disable HTTP request logging to keep console output clean"),
+        )
+        .arg(
+            Arg::new("cors")
+                .short('C')
+                .long("cors")
+                .action(clap::ArgAction::SetTrue)
+                .help("Enable CORS headers for cross-origin requests (sets Access-Control-Allow-Origin: *)"),
+        )
+        .arg(
+            Arg::new("no-compression")
+                .short('u')
+                .long("no-compression")
+                .action(clap::ArgAction::SetTrue)
+                .help("Disable gzip compression (compression is enabled by default)"),
+        )
+        .arg(
+            Arg::new("single")
+                .short('s')
+                .long("single")
+                .action(clap::ArgAction::SetTrue)
+                .help("Enable Single Page Application mode - serve index.html for all routes"),
+        )
+        .arg(
+            Arg::new("ssl-cert")
+                .long("ssl-cert")
+                .value_name("FILE")
+                .help("Path to SSL/TLS certificate file (PEM or PKCS12/PFX format)"),
+        )
+        .arg(
+            Arg::new("ssl-key")
+                .long("ssl-key")
+                .value_name("FILE")
+                .help("Path to private key file (required for PEM certificates)"),
+        )
+        .arg(
+            Arg::new("ssl-pass")
+                .long("ssl-pass")
+                .value_name("FILE")
+                .help("Path to file containing certificate passphrase"),
+        )
+        .arg(
+            Arg::new("no-clipboard")
+                .short('n')
+                .long("no-clipboard")
+                .action(clap::ArgAction::SetTrue)
+                .help("Don't automatically copy server URL to clipboard"),
+        )
+        .arg(
+            Arg::new("no-port-switching")
+                .long("no-port-switching")
+                .action(clap::ArgAction::SetTrue)
+                .help("Fail if specified port is unavailable (don't auto-switch ports)"),
+        )
+        .arg(
+            Arg::new("symlinks")
+                .short('S')
+                .long("symlinks")
+                .action(clap::ArgAction::SetTrue)
+                .help("Follow symbolic links when serving files"),
+        )
+        .arg(
+            Arg::new("no-etag")
+                .long("no-etag")
+                .action(clap::ArgAction::SetTrue)
+                .help("Use Last-Modified header instead of ETag for HTTP caching"),
         )
         .get_matches();
 
+    // Initialize the logger
+    let enable_request_logging = !matches.get_flag("no-request-logging");
+    logger::init_logger(enable_request_logging);
+    let app_logger = logger::get_logger();
+    
+    // Log startup information using new logger
+    app_logger.startup_info(PKG_NAME, PKG_VERSION, PKG_AUTHORS);
+
     let port_arg = matches.get_one::<String>("port").unwrap();
-    let port = port_arg.parse::<u16>().unwrap();
+    let requested_port = port_arg.parse::<u16>().unwrap();
 
     let dir_arg = matches.get_one::<String>("directory").unwrap();
     let dir = Path::new(&dir_arg);
+    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let serve_dir = dir.to_path_buf();
+    
     let is_path_set = env::set_current_dir(dir);
 
     match is_path_set {
         Ok(()) => (),
         Err(_) => {
-            println!("Unknown path: {}", dir_arg);
+            app_logger.error(&format!("Unknown path: {}", dir_arg));
             exit(1)
         }
     }
+
+    // Load configuration
+    let custom_config = matches.get_one::<String>("config").map(|s| s.as_str());
+    let config_loader = config::ConfigLoader::new(current_dir, serve_dir);
+    let configuration = match config_loader.load_configuration(custom_config) {
+        Ok(config) => config,
+        Err(e) => {
+            app_logger.error(&format!("Configuration error: {}", e));
+            exit(1);
+        }
+    };
+
+    // Extract CLI flags
+    let cors_enabled = matches.get_flag("cors");
+    let compression_disabled = matches.get_flag("no-compression");
+    let single_page_app = matches.get_flag("single");
+    let ssl_cert = matches.get_one::<String>("ssl-cert").map(|s| s.as_str());
+    let ssl_key = matches.get_one::<String>("ssl-key").map(|s| s.as_str());
+    let ssl_pass = matches.get_one::<String>("ssl-pass").map(|s| s.as_str());
+    let clipboard_disabled = matches.get_flag("no-clipboard");
+    
+    // Setup clipboard manager
+    let clipboard_manager = clipboard::ClipboardManager::new(!clipboard_disabled);
+    let port_switching_disabled = matches.get_flag("no-port-switching");
+    let symlinks_enabled = matches.get_flag("symlinks");
+    let etag_disabled = matches.get_flag("no-etag");
+
+    // Validate and configure TLS if SSL arguments are provided
+    let tls_config = match tls::validate_ssl_args(ssl_cert, ssl_key, ssl_pass) {
+        Ok(config) => config,
+        Err(e) => {
+            app_logger.error(&format!("SSL configuration error: {}", e));
+            exit(1);
+        }
+    };
+
+    // Resolve the port - check availability and auto-switch if needed
+    let allow_port_switching = !port_switching_disabled;
+    let actual_port = match network::NetworkUtils::resolve_port("0.0.0.0", requested_port, allow_port_switching) {
+        Ok(port) => port,
+        Err(e) => {
+            app_logger.error(&e);
+            exit(1);
+        }
+    };
+    
+    let previous_port = if actual_port != requested_port {
+        Some(requested_port)
+    } else {
+        None
+    };
 
     // Setup paths for basic web files
     let index_path = PathBuf::from("index.html");
@@ -351,25 +502,25 @@ async fn main() -> std::io::Result<()> {
         }
         
         if !created_files.is_empty() {
-            println!("Created files: {}", created_files.join(", "));
+            app_logger.info(&format!("Created files: {}", created_files.join(", ")));
         } else {
-            println!("All basic web files already exist. No files created.");
+            app_logger.info("All basic web files already exist. No files created.");
         }
     } else {
         // Without --init flag, only check if index.html exists and prompt if missing
         if !index_path.exists() {
-            println!("index.html not found in {}.", dir_arg);
-            println!("Would you like to create a basic index.html file? (y/n)");
+            app_logger.info(&format!("index.html not found in {}.", dir_arg));
+            app_logger.info("Would you like to create a basic index.html file? (y/n)");
             
             let mut response = String::new();
             io::stdin().read_line(&mut response)?;
             
             if response.trim().to_lowercase() == "y" {
                 fs::write(&index_path, HTML_TEMPLATE)?;
-                println!("Created index.html file.");
-                println!("Tip: Use --init flag to also create style.css and main.js files.");
+                app_logger.info("Created index.html file.");
+                app_logger.info("Tip: Use --init flag to also create style.css and main.js files.");
             } else {
-                println!("Note: The server will run but may not serve a default page.");
+                app_logger.warn("Note: The server will run but may not serve a default page.");
             }
         }
     }
@@ -382,16 +533,54 @@ async fn main() -> std::io::Result<()> {
     // Initialize logging
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     
-    // Server information message
-    println!("Server: {}", SERVER_SIGNATURE);
+    // Create server addresses for display
+    let uses_https = tls_config.is_some();
+    let server_addresses = network::NetworkUtils::create_server_addresses(
+        "0.0.0.0", 
+        actual_port, 
+        uses_https,
+        previous_port
+    );
     
-    if test_flag {
-        log::info!("Self-test endpoint enabled at http://localhost:{}/self-test", port_arg);
+    // Server information message using new logger
+    app_logger.server_info(SERVER_SIGNATURE, &server_addresses.local, server_addresses.network.as_deref());
+    
+    // Copy URL to clipboard if enabled
+    if !clipboard_disabled {
+        let server_url = format!("{}://localhost:{}", if uses_https { "https" } else { "http" }, actual_port);
+        if let Err(e) = clipboard_manager.copy_server_url(&server_url) {
+            app_logger.warn(&format!("Could not copy to clipboard: {}", e));
+        }
     }
     
-    log::info!("starting HTTP server at http://localhost:{}", port_arg);
+    if let Some(prev_port) = previous_port {
+        app_logger.warn(&format!("Port {} was already in use, switched to port {}", prev_port, actual_port));
+    }
     
-    HttpServer::new(move || {
+    if test_flag {
+        let protocol = if uses_https { "https" } else { "http" };
+        app_logger.info(&format!("Self-test endpoint enabled at {}://localhost:{}/self-test", protocol, actual_port));
+    }
+
+    // Set up basic signal handling for graceful shutdown
+    if let Err(e) = shutdown::setup_basic_signal_handling().await {
+        app_logger.error(&format!("Failed to setup signal handling: {}", e));
+    }
+    
+    // Load TLS configuration if provided
+    let rustls_config = if let Some(ref tls_cfg) = tls_config {
+        match tls_cfg.load_server_config().await {
+            Ok(config) => Some(config),
+            Err(e) => {
+                app_logger.error(&format!("Failed to load TLS configuration: {}", e));
+                exit(1);
+            }
+        }
+    } else {
+        None
+    };
+    
+    let server = HttpServer::new(move || {
         // Create custom headers middleware
         let headers = DefaultHeaders::new()
             .add(("X-Server", SERVER_SIGNATURE))
@@ -402,11 +591,25 @@ async fn main() -> std::io::Result<()> {
         let logger = Logger::new("%r %s %b %D")
             .log_target("msaada");
         
-        // Build the app with correct ordering of handlers
+        // Setup CORS middleware (conditionally configured)
+        let cors = if cors_enabled {
+            Cors::default()
+                .allow_any_origin()
+                .allow_any_header()
+                .allow_any_method()
+                .supports_credentials()
+        } else {
+            Cors::default()
+                .allow_any_origin() // Still need minimal CORS setup
+        };
+        
+        // Build the app with middleware applied in proper order
+        // For now, we'll always apply compression and handle the flag in a future version
         let mut app = App::new()
-            // First register middleware
             .wrap(logger)
-            .wrap(headers);
+            .wrap(headers)
+            .wrap(cors)
+            .wrap(Compress::default());
             
         // Register the POST handler FIRST with highest priority
         app = app.service(handle_post);
@@ -416,16 +619,38 @@ async fn main() -> std::io::Result<()> {
             app = app.service(self_test_endpoint);
         }
         
-        // Serve static files with lower priority (after POST handler)
-        app = app.service(
-            Files::new("/", "./")
-                .index_file("index.html")
-                .use_last_modified(true)
-        );
+        // Configure static file serving with SPA support
+        let mut files_service = Files::new("/", "./")
+            .index_file("index.html")
+            .use_etag(!etag_disabled)           // Use ETag when NOT disabled (default)
+            .use_last_modified(etag_disabled);  // Use Last-Modified when ETag IS disabled
+            
+        // Apply advanced web features based on configuration
+        if symlinks_enabled {
+            files_service = files_service.use_hidden_files();
+        }
+        
+        app = app.service(files_service);
+        
+        // Add SPA fallback handler if single page app mode is enabled
+        if single_page_app {
+            app = app
+                .app_data(web::Data::new(std::path::PathBuf::from("./")))
+                .default_service(
+                    web::route().to(spa::spa_fallback_handler)
+                );
+        }
         
         app
-    })
-    .bind(("0.0.0.0", port))?
-    .run()
-    .await
+    });
+
+    // Bind server with or without TLS
+    let server = if let Some(rustls_config) = rustls_config {
+        server.bind_rustls_021(("0.0.0.0", actual_port), rustls_config)?
+    } else {
+        server.bind(("0.0.0.0", actual_port))?
+    };
+
+    // Start the server
+    server.run().await
 }
