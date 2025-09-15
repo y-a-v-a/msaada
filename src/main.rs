@@ -8,15 +8,15 @@ mod tls;
 
 use actix_files::Files;
 use actix_web::{
-    middleware::{Logger, DefaultHeaders, Compress}, 
+    middleware::{DefaultHeaders, Compress}, 
     web, App, Error, HttpRequest, HttpResponse, HttpServer, 
-    Responder, post, get
+    Responder, post, get, dev::{Service, ServiceRequest, ServiceResponse, Transform},
 };
 use actix_cors::Cors;
 use actix_multipart::Multipart;
 use clap::Arg;
 use clap::Command;
-use futures_util::stream::StreamExt;
+use futures_util::{future::LocalBoxFuture, stream::StreamExt};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
@@ -25,6 +25,73 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
+
+// Custom HTTP request logging middleware
+pub struct CustomLogger;
+
+impl<S, B> Transform<S, ServiceRequest> for CustomLogger
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Transform = CustomLoggerMiddleware<S>;
+    type InitError = ();
+    type Future = std::future::Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        std::future::ready(Ok(CustomLoggerMiddleware { service }))
+    }
+}
+
+pub struct CustomLoggerMiddleware<S> {
+    service: S,
+}
+
+impl<S, B> Service<ServiceRequest> for CustomLoggerMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let start_time = Instant::now();
+        
+        // Extract request information
+        let method = req.method().to_string();
+        let path = req.path().to_string();
+        let client_ip = req
+            .connection_info()
+            .realip_remote_addr()
+            .unwrap_or("unknown")
+            .to_string();
+
+        let fut = self.service.call(req);
+
+        Box::pin(async move {
+            let res = fut.await?;
+            let response_time = start_time.elapsed().as_millis();
+            let status = res.status().as_u16();
+            
+            // Log the request using our custom logger
+            let logger = logger::get_logger();
+            logger.http(&client_ip, &method, &path, Some(status), Some(response_time));
+            
+            Ok(res)
+        })
+    }
+}
 
 /// Handler for POST requests - catches all POST requests
 #[post("/{path:.*}")]
@@ -323,6 +390,13 @@ async fn main() -> std::io::Result<()> {
                 .help("Disable HTTP request logging to keep console output clean"),
         )
         .arg(
+            Arg::new("no-timestamps")
+                .short('T')
+                .long("no-timestamps")
+                .action(clap::ArgAction::SetTrue)
+                .help("Disable timestamps in log messages"),
+        )
+        .arg(
             Arg::new("cors")
                 .short('C')
                 .long("cors")
@@ -391,7 +465,8 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize the logger
     let enable_request_logging = !matches.get_flag("no-request-logging");
-    logger::init_logger(enable_request_logging);
+    let enable_timestamps = !matches.get_flag("no-timestamps");
+    logger::init_logger(enable_request_logging, enable_timestamps);
     let app_logger = logger::get_logger();
     
     // Log startup information using new logger
@@ -417,7 +492,7 @@ async fn main() -> std::io::Result<()> {
 
     // Load configuration
     let custom_config = matches.get_one::<String>("config").map(|s| s.as_str());
-    let config_loader = config::ConfigLoader::new(current_dir, serve_dir);
+    let config_loader = config::ConfigLoader::new(current_dir.clone(), serve_dir.clone());
     let configuration = match config_loader.load_configuration(custom_config) {
         Ok(config) => config,
         Err(e) => {
@@ -434,12 +509,27 @@ async fn main() -> std::io::Result<()> {
     let ssl_key = matches.get_one::<String>("ssl-key").map(|s| s.as_str());
     let ssl_pass = matches.get_one::<String>("ssl-pass").map(|s| s.as_str());
     let clipboard_disabled = matches.get_flag("no-clipboard");
-    
-    // Setup clipboard manager
-    let clipboard_manager = clipboard::ClipboardManager::new(!clipboard_disabled);
     let port_switching_disabled = matches.get_flag("no-port-switching");
     let symlinks_enabled = matches.get_flag("symlinks");
     let etag_disabled = matches.get_flag("no-etag");
+    
+    // Merge CLI flags with configuration (CLI flags override config)
+    let effective_single_page_app = single_page_app || configuration.render_single;
+    let effective_symlinks_enabled = symlinks_enabled || configuration.symlinks;
+    let effective_etag_enabled = !etag_disabled && configuration.etag;
+    let effective_clean_urls = configuration.clean_urls;
+    let effective_trailing_slash = configuration.trailing_slash;
+    let effective_compression_enabled = !compression_disabled;
+    
+    // Use the public directory from configuration if available, otherwise use serve_dir
+    let effective_serve_dir = if let Some(ref public_dir) = configuration.public {
+        PathBuf::from(public_dir)
+    } else {
+        serve_dir.clone()
+    };
+    
+    // Setup clipboard manager
+    let clipboard_manager = clipboard::ClipboardManager::new(!clipboard_disabled);
 
     // Validate and configure TLS if SSL arguments are provided
     let tls_config = match tls::validate_ssl_args(ssl_cert, ssl_key, ssl_pass) {
@@ -553,7 +643,7 @@ async fn main() -> std::io::Result<()> {
         }
     }
     
-    if let Some(prev_port) = previous_port {
+    if let Some(prev_port) = server_addresses.previous_port {
         app_logger.warn(&format!("Port {} was already in use, switched to port {}", prev_port, actual_port));
     }
     
@@ -561,8 +651,20 @@ async fn main() -> std::io::Result<()> {
         let protocol = if uses_https { "https" } else { "http" };
         app_logger.info(&format!("Self-test endpoint enabled at {}://localhost:{}/self-test", protocol, actual_port));
     }
+    
+    // Log compression settings
+    if effective_compression_enabled {
+        app_logger.info("Compression: enabled");
+    } else {
+        app_logger.info("Compression: disabled (--no-compression flag)");
+    }
 
-    // Set up basic signal handling for graceful shutdown
+    // Set up graceful shutdown handling  
+    // Create shutdown manager for future advanced shutdown handling
+    let mut _shutdown_manager = shutdown::ShutdownManager::new();
+    
+    // For now, continue using basic signal handling as integrating full ShutdownManager
+    // requires server handle management which is more complex
     if let Err(e) = shutdown::setup_basic_signal_handling().await {
         app_logger.error(&format!("Failed to setup signal handling: {}", e));
     }
@@ -580,68 +682,86 @@ async fn main() -> std::io::Result<()> {
         None
     };
     
-    let server = HttpServer::new(move || {
-        // Create custom headers middleware
-        let headers = DefaultHeaders::new()
-            .add(("X-Server", SERVER_SIGNATURE))
-            .add(("X-Powered-By", PKG_NAME))
-            .add(("X-Version", PKG_VERSION));
-            
-        // Create a customized logger with higher detail level
-        let logger = Logger::new("%r %s %b %D")
-            .log_target("msaada");
+    let server = HttpServer::new({
+        // Clone values that need to be moved into the closure
+        let effective_serve_dir = effective_serve_dir.clone();
+        let effective_single_page_app = effective_single_page_app;
+        let effective_symlinks_enabled = effective_symlinks_enabled;
+        let effective_etag_enabled = effective_etag_enabled;
+        let effective_clean_urls = effective_clean_urls;
+        let effective_trailing_slash = effective_trailing_slash;
+        let config_rewrites = configuration.rewrites.clone();
         
-        // Setup CORS middleware (conditionally configured)
-        let cors = if cors_enabled {
-            Cors::default()
-                .allow_any_origin()
-                .allow_any_header()
-                .allow_any_method()
-                .supports_credentials()
-        } else {
-            Cors::default()
-                .allow_any_origin() // Still need minimal CORS setup
-        };
-        
-        // Build the app with middleware applied in proper order
-        // For now, we'll always apply compression and handle the flag in a future version
-        let mut app = App::new()
-            .wrap(logger)
-            .wrap(headers)
-            .wrap(cors)
-            .wrap(Compress::default());
+        move || {
+            // Create custom headers middleware
+            let headers = DefaultHeaders::new()
+                .add(("X-Server", SERVER_SIGNATURE))
+                .add(("X-Powered-By", PKG_NAME))
+                .add(("X-Version", PKG_VERSION));
             
-        // Register the POST handler FIRST with highest priority
-        app = app.service(handle_post);
+            // Setup CORS middleware (conditionally configured)
+            let cors = if cors_enabled {
+                Cors::default()
+                    .allow_any_origin()
+                    .allow_any_header()
+                    .allow_any_method()
+                    .supports_credentials()
+            } else {
+                Cors::default()
+                    .allow_any_origin() // Still need minimal CORS setup
+            };
             
-        // Register self-test endpoint if --test flag is provided
-        if test_flag {
-            app = app.service(self_test_endpoint);
+            // Build the app with middleware applied in proper order
+            // TODO: Implement conditional compression based on effective_compression_enabled flag
+            // For now, compression is always enabled as implementing conditional middleware 
+            // requires more complex type handling in actix-web
+            let mut app = App::new()
+                .wrap(CustomLogger)
+                .wrap(headers)
+                .wrap(cors)
+                .wrap(Compress::default());
+            
+            // Register the POST handler FIRST with highest priority
+            app = app.service(handle_post);
+                
+            // Register self-test endpoint if --test flag is provided
+            if test_flag {
+                app = app.service(self_test_endpoint);
+            }
+            
+            // Configure static file serving with SPA support
+            let serve_path = effective_serve_dir.to_string_lossy().to_string();
+            let mut files_service = Files::new("/", serve_path)
+                .index_file("index.html")
+                .use_etag(effective_etag_enabled)
+                .use_last_modified(!effective_etag_enabled);
+                
+            // Apply advanced web features based on effective configuration
+            if effective_symlinks_enabled {
+                files_service = files_service.use_hidden_files();
+            }
+            
+            app = app.service(files_service);
+            
+            // Add SPA fallback handler if single page app mode is enabled
+            if effective_single_page_app {
+                // Create a configurable SPA handler that uses URL processing functions
+                let spa_handler = {
+                    let serve_dir = effective_serve_dir.clone();
+                    let clean_urls = effective_clean_urls;
+                    let trailing_slash = effective_trailing_slash;
+                    let rewrites = config_rewrites.clone();
+                    
+                    move |req: HttpRequest| {
+                        spa::configurable_spa_handler(req, serve_dir.clone(), clean_urls, trailing_slash, rewrites.clone())
+                    }
+                };
+                
+                app = app.default_service(web::route().to(spa_handler));
+            }
+            
+            app
         }
-        
-        // Configure static file serving with SPA support
-        let mut files_service = Files::new("/", "./")
-            .index_file("index.html")
-            .use_etag(!etag_disabled)           // Use ETag when NOT disabled (default)
-            .use_last_modified(etag_disabled);  // Use Last-Modified when ETag IS disabled
-            
-        // Apply advanced web features based on configuration
-        if symlinks_enabled {
-            files_service = files_service.use_hidden_files();
-        }
-        
-        app = app.service(files_service);
-        
-        // Add SPA fallback handler if single page app mode is enabled
-        if single_page_app {
-            app = app
-                .app_data(web::Data::new(std::path::PathBuf::from("./")))
-                .default_service(
-                    web::route().to(spa::spa_fallback_handler)
-                );
-        }
-        
-        app
     });
 
     // Bind server with or without TLS

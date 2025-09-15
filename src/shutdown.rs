@@ -24,6 +24,7 @@ impl ShutdownManager {
     }
 
     /// Set up graceful shutdown signal handling
+    #[allow(dead_code)]
     pub async fn setup_shutdown_handling(
         &mut self,
         server_handle: ServerHandle,
@@ -66,7 +67,7 @@ impl ShutdownManager {
                             // Try to stop the server gracefully
                             if let Ok(mut handle) = server_handle.lock() {
                                 if let Some(server) = handle.take() {
-                                    server.stop(true);
+                                    let _ = server.stop(true);
                                 }
                             }
                             
@@ -95,6 +96,7 @@ impl ShutdownManager {
     }
 
     /// Trigger graceful shutdown
+    #[allow(dead_code)]
     pub fn shutdown(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
@@ -106,6 +108,7 @@ impl ShutdownManager {
     }
 
     /// Get the server handle for external control
+    #[allow(dead_code)]
     pub fn get_server_handle(&self) -> Arc<Mutex<Option<ServerHandle>>> {
         Arc::clone(&self.server_handle)
     }

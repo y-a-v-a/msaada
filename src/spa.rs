@@ -8,16 +8,52 @@ use actix_web::{
 use std::path::PathBuf;
 
 /// SPA fallback handler that serves index.html for all non-API routes
+/// (Kept for backward compatibility - use configurable_spa_handler for advanced features)
+#[allow(dead_code)]
 pub async fn spa_fallback_handler(
     req: HttpRequest,
     directory: web::Data<PathBuf>,
 ) -> Result<HttpResponse> {
     let path = req.path();
     
-    // Don't apply SPA fallback to API routes or file extensions
-    if path.starts_with("/api/") || 
-       path.starts_with("/_") ||
-       path.contains('.') {
+    // Use the should_use_spa_fallback function to determine if we should handle this route
+    if !should_use_spa_fallback(path) {
+        return Ok(HttpResponse::NotFound().finish());
+    }
+    
+    // Serve index.html for SPA routes
+    let index_path = directory.join("index.html");
+    
+    if index_path.exists() {
+        match NamedFile::open(&index_path) {
+            Ok(file) => {
+                let response = file.into_response(&req);
+                Ok(response.into())
+            },
+            Err(_) => Ok(HttpResponse::NotFound().finish()),
+        }
+    } else {
+        Ok(HttpResponse::NotFound().body("index.html not found - required for SPA mode"))
+    }
+}
+
+/// Advanced SPA fallback handler with URL processing based on configuration
+pub async fn configurable_spa_handler(
+    req: HttpRequest,
+    directory: PathBuf,
+    clean_urls: bool,
+    trailing_slash: bool,
+    rewrites: Vec<crate::config::Rewrite>,
+) -> Result<HttpResponse> {
+    let path = req.path();
+    
+    // First, apply URL rewrites if configured
+    let processed_path = apply_url_rewrites(path, &rewrites);
+    let processed_path = if clean_urls { apply_clean_urls(&processed_path) } else { processed_path };
+    let processed_path = apply_trailing_slash(&processed_path, trailing_slash);
+    
+    // Use the should_use_spa_fallback function to determine if we should handle this route
+    if !should_use_spa_fallback(&processed_path) {
         return Ok(HttpResponse::NotFound().finish());
     }
     

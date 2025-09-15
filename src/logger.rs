@@ -222,8 +222,12 @@ fn strip_ansi_codes(s: &str) -> String {
 use std::sync::OnceLock;
 static GLOBAL_LOGGER: OnceLock<Logger> = OnceLock::new();
 
-pub fn init_logger(enable_request_logging: bool) {
-    let _ = GLOBAL_LOGGER.set(Logger::new().with_request_logging(enable_request_logging));
+pub fn init_logger(enable_request_logging: bool, enable_timestamps: bool) {
+    let _ = GLOBAL_LOGGER.set(
+        Logger::new()
+            .with_request_logging(enable_request_logging)
+            .with_timestamps(enable_timestamps)
+    );
 }
 
 pub fn get_logger() -> &'static Logger {
