@@ -197,4 +197,167 @@ mod tests {
         let new_port = result.unwrap();
         assert!(new_port > bound_port);
     }
+
+    #[test]
+    fn test_create_server_addresses_ipv6() {
+        let addresses = NetworkUtils::create_server_addresses(
+            "::", 
+            8080, 
+            true, 
+            None
+        );
+        
+        assert_eq!(addresses.local, "https://localhost:8080");
+        assert_eq!(addresses.previous_port, None);
+        
+        // Network address should exist and handle IPv6 formatting
+        if let Some(network) = &addresses.network {
+            // Should contain brackets if IPv6
+            assert!(network.starts_with("https://"));
+        }
+    }
+
+    #[test]
+    fn test_create_server_addresses_with_previous_port() {
+        let addresses = NetworkUtils::create_server_addresses(
+            "0.0.0.0", 
+            3001, 
+            false, 
+            Some(3000)
+        );
+        
+        assert_eq!(addresses.local, "http://localhost:3001");
+        assert_eq!(addresses.previous_port, Some(3000));
+    }
+
+    #[test]
+    fn test_resolve_port_boundary_cases() {
+        // Test with very high port numbers near the limit
+        let result = NetworkUtils::resolve_port("127.0.0.1", 65535, true);
+        // Should either succeed with 65535 or fail gracefully
+        match result {
+            Ok(port) => assert_eq!(port, 65535),
+            Err(_) => {} // Acceptable if port is not available
+        }
+        
+        // Test with port 1 (privileged)
+        let result = NetworkUtils::resolve_port("127.0.0.1", 1, false);
+        // Will likely fail due to permissions, but should not panic
+        match result {
+            Ok(_) => {} // Unexpected but not wrong
+            Err(msg) => assert!(msg.contains("already in use") || msg.contains("Permission")),
+        }
+    }
+
+    #[test] 
+    fn test_port_range_exhaustion() {
+        // Create a scenario where many ports are bound
+        let mut listeners = Vec::new();
+        let start_port = 45000;
+        
+        // Bind several consecutive ports
+        for i in 0..5 {
+            if let Ok(listener) = TcpListener::bind(format!("127.0.0.1:{}", start_port + i)) {
+                listeners.push(listener);
+            }
+        }
+        
+        // Try to find available port in a small range
+        let available = NetworkUtils::find_available_port("127.0.0.1", start_port);
+        
+        if available.is_some() {
+            let port = available.unwrap();
+            // Should find a port outside the bound range
+            assert!(port >= start_port);
+            assert!(port < start_port + 100);
+        }
+        
+        drop(listeners); // Clean up
+    }
+
+    #[test]
+    fn test_is_port_available_different_hosts() {
+        // Test localhost variants
+        let high_port = 58001; // Use high port likely to be available
+        
+        // These should all refer to the same interface in most cases
+        let localhost_available = NetworkUtils::is_port_available("localhost", high_port);
+        let ip_available = NetworkUtils::is_port_available("127.0.0.1", high_port);
+        let wildcard_available = NetworkUtils::is_port_available("0.0.0.0", high_port);
+        
+        // Results should be consistent for localhost references
+        assert_eq!(localhost_available, ip_available);
+        
+        // Note: 0.0.0.0 might behave differently depending on system configuration
+        // so we just verify it doesn't panic
+        let _ = wildcard_available;
+    }
+
+    #[test]
+    fn test_get_network_address_returns_valid_ip() {
+        match NetworkUtils::get_network_address() {
+            Some(ip) => {
+                // Verify it's a valid IP address
+                match ip {
+                    std::net::IpAddr::V4(v4) => {
+                        // Should not be the loopback address for "network" address
+                        // but might be in some test environments
+                        assert!(!v4.to_string().is_empty());
+                    },
+                    std::net::IpAddr::V6(v6) => {
+                        assert!(!v6.to_string().is_empty());
+                    }
+                }
+            },
+            None => {
+                // Acceptable in environments without network interfaces
+                println!("No network address available (expected in some test environments)");
+            }
+        }
+    }
+
+    #[test]
+    fn test_server_addresses_protocol_consistency() {
+        let http_addresses = NetworkUtils::create_server_addresses("localhost", 8000, false, None);
+        let https_addresses = NetworkUtils::create_server_addresses("localhost", 8000, true, None);
+        
+        assert!(http_addresses.local.starts_with("http://"));
+        assert!(https_addresses.local.starts_with("https://"));
+        
+        if let Some(network_http) = &http_addresses.network {
+            assert!(network_http.starts_with("http://"));
+        }
+        
+        if let Some(network_https) = &https_addresses.network {
+            assert!(network_https.starts_with("https://"));
+        }
+    }
+
+    #[test]
+    fn test_error_message_formatting() {
+        // Test error message when port switching is disabled
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let bound_addr = listener.local_addr().unwrap();
+        let bound_port = bound_addr.port();
+
+        let result = NetworkUtils::resolve_port("127.0.0.1", bound_port, false);
+        assert!(result.is_err());
+        
+        let error_msg = result.unwrap_err();
+        assert!(error_msg.contains("already in use"));
+        assert!(error_msg.contains("--no-port-switching"));
+        assert!(error_msg.contains(&bound_port.to_string()));
+    }
+
+    #[test]
+    fn test_find_available_port_range_limits() {
+        // Test that find_available_port respects the 100-port limit
+        let start_port = 50000;
+        let result = NetworkUtils::find_available_port("127.0.0.1", start_port);
+        
+        if let Some(port) = result {
+            assert!(port >= start_port);
+            assert!(port < start_port + 100);
+        }
+    }
 }

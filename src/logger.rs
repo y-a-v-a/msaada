@@ -321,4 +321,231 @@ mod tests {
         let no_timestamp = logger_no_timestamp.format_timestamp();
         assert!(no_timestamp.is_empty());
     }
+
+    #[test]
+    fn test_http_logging_with_request_logging_disabled() {
+        let logger = Logger::new().with_request_logging(false);
+        
+        // These should not panic even when request logging is disabled
+        logger.http("127.0.0.1", "GET", "/test", None, None);
+        logger.http("127.0.0.1", "POST", "/api/users", Some(201), Some(45));
+    }
+
+    #[test]
+    fn test_http_logging_status_code_formatting() {
+        let logger = Logger::new().with_request_logging(true);
+        
+        // Test various status codes (these would show in different colors)
+        logger.http("192.168.1.1", "GET", "/success", Some(200), Some(10));
+        logger.http("192.168.1.1", "GET", "/redirect", Some(301), Some(5));
+        logger.http("192.168.1.1", "GET", "/not-found", Some(404), Some(2));
+        logger.http("192.168.1.1", "POST", "/error", Some(500), Some(100));
+    }
+
+    #[test]
+    fn test_complex_ansi_code_stripping() {
+        // Test various ANSI codes
+        let bold_red = "\x1b[1;31mBold Red\x1b[0m";
+        assert_eq!(strip_ansi_codes(bold_red), "Bold Red");
+        
+        let nested_colors = format!("{}{}Text{}", "Start".red(), "Middle".blue(), "End".green());
+        assert_eq!(strip_ansi_codes(&nested_colors), "StartMiddleTextEnd");
+        
+        let mixed_content = format!("Plain {} {}", "Colored".yellow().bold(), "Text");
+        assert_eq!(strip_ansi_codes(&mixed_content), "Plain Colored Text");
+        
+        // Test malformed escape sequences
+        let malformed = "\x1b[Xmalformed\x1bnocode";
+        assert_eq!(strip_ansi_codes(malformed), "malformed\x1bnocode");
+        
+        // Empty string
+        assert_eq!(strip_ansi_codes(""), "");
+        
+        // Only ANSI codes
+        let only_codes = format!("{}", "".red().bold());
+        assert_eq!(strip_ansi_codes(&only_codes), "");
+    }
+
+    #[test]
+    fn test_startup_info_formatting() {
+        let logger = Logger::new();
+        
+        // This should not panic
+        logger.startup_info("TestApp", "1.0.0", "Test Author");
+        logger.startup_info("", "", ""); // Edge case with empty strings
+        logger.startup_info("App-With-Dashes", "1.0.0-beta", "Author <email@example.com>");
+    }
+
+    #[test]
+    fn test_server_info_formatting() {
+        let logger = Logger::new();
+        
+        // Test with both local and network URLs
+        logger.server_info(
+            "TestServer/1.0", 
+            "http://localhost:3000", 
+            Some("http://192.168.1.100:3000")
+        );
+        
+        // Test with only local URL
+        logger.server_info("TestServer/1.0", "http://localhost:3000", None);
+        
+        // Test with empty URLs
+        logger.server_info("TestServer/1.0", "", None);
+        logger.server_info("", "http://localhost:3000", Some("http://192.168.1.100:3000"));
+    }
+
+    #[test]
+    fn test_boxed_output_edge_cases() {
+        let logger = Logger::new();
+        
+        // Empty message
+        logger.print_boxed("");
+        
+        // Single line
+        logger.print_boxed("Single line message");
+        
+        // Multiple lines with different lengths
+        logger.print_boxed("Short\nThis is a much longer line\nMed");
+        
+        // Lines with ANSI codes
+        let colored_message = format!("{}\n{}\n{}", 
+            "Red line".red(), 
+            "Green line".green(), 
+            "Blue line".blue()
+        );
+        logger.print_boxed(&colored_message);
+        
+        // Very long line
+        let long_message = "A".repeat(100);
+        logger.print_boxed(&long_message);
+        
+        // Unicode characters
+        logger.print_boxed("Unicode: 🚀 📦 ✅\nCafé résumé naïve\n测试内容");
+    }
+
+    #[test]
+    fn test_shutdown_messages() {
+        let logger = Logger::new();
+        
+        // These should not panic
+        logger.shutdown_message();
+        logger.force_shutdown_message();
+    }
+
+    #[test]
+    fn test_logger_methods_with_special_characters() {
+        let logger = Logger::new();
+        
+        // Test with various special characters
+        logger.info("Info with unicode: 🔥 💯 ⚡");
+        logger.warn("Warning with symbols: !@#$%^&*()");
+        logger.error("Error with quotes: \"quoted\" and 'single'");
+        
+        // Test with newlines and tabs
+        logger.info("Multi\nline\tmessage");
+        logger.warn("Tabs:\t\tand\tspaces");
+        
+        // Test with very long messages
+        let long_message = "A".repeat(1000);
+        logger.error(&long_message);
+        
+        // Empty messages
+        logger.info("");
+        logger.warn("");
+        logger.error("");
+    }
+
+    #[test]
+    fn test_global_logger_initialization() {
+        // Test that we can get a default logger
+        let default_logger = get_logger();
+        assert!(default_logger.enable_request_logging);
+        assert!(default_logger.enable_timestamps);
+        
+        // Note: We can't easily test init_logger here because it uses OnceLock
+        // which can only be set once per process, and other tests might have already set it
+    }
+
+    #[test]
+    fn test_logger_default_implementation() {
+        let logger1 = Logger::default();
+        let logger2 = Logger::new();
+        
+        assert_eq!(logger1.enable_request_logging, logger2.enable_request_logging);
+        assert_eq!(logger1.enable_timestamps, logger2.enable_timestamps);
+    }
+
+    #[test]
+    fn test_http_logging_without_status_and_time() {
+        let logger = Logger::new().with_request_logging(true);
+        
+        // Test HTTP logging with missing status/time information
+        logger.http("127.0.0.1", "GET", "/incomplete", None, None);
+        logger.http("10.0.0.1", "POST", "/partial", Some(200), None);
+        logger.http("192.168.1.1", "PUT", "/partial2", None, Some(50));
+    }
+
+    #[test]
+    fn test_box_width_calculation() {
+        let logger = Logger::new();
+        
+        // Test that box width is calculated correctly for various content
+        // (Visual inspection would be needed to verify actual output)
+        
+        // ASCII art
+        logger.print_boxed("  /\\_/\\\n ( o.o )\n  > ^ <");
+        
+        // Mixed width content
+        logger.print_boxed("Short\nMedium length\nVery very very long line\nS");
+        
+        // Only spaces
+        logger.print_boxed("   \n     \n ");
+        
+        // Tab characters
+        logger.print_boxed("Line\twith\ttabs");
+    }
+
+    #[test]
+    fn test_concurrent_logging() {
+        use std::thread;
+        use std::sync::Arc;
+        
+        let logger = Arc::new(Logger::new());
+        let mut handles = vec![];
+        
+        // Spawn multiple threads that log concurrently
+        for i in 0..5 {
+            let logger_clone = Arc::clone(&logger);
+            let handle = thread::spawn(move || {
+                logger_clone.info(&format!("Thread {} logging", i));
+                logger_clone.http("127.0.0.1", "GET", &format!("/thread-{}", i), Some(200), Some(10));
+                logger_clone.warn(&format!("Thread {} warning", i));
+            });
+            handles.push(handle);
+        }
+        
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_log_level_color_consistency() {
+        // Test that log levels maintain their color/formatting consistently
+        let http_str1 = format!("{}", LogLevel::Http);
+        let http_str2 = format!("{}", LogLevel::Http);
+        assert_eq!(http_str1, http_str2);
+        
+        let info_str1 = format!("{}", LogLevel::Info);
+        let info_str2 = format!("{}", LogLevel::Info);
+        assert_eq!(info_str1, info_str2);
+        
+        // All log levels should contain their name
+        assert!(format!("{}", LogLevel::Http).contains("HTTP"));
+        assert!(format!("{}", LogLevel::Info).contains("INFO"));
+        assert!(format!("{}", LogLevel::Warn).contains("WARN"));
+        assert!(format!("{}", LogLevel::Error).contains("ERROR"));
+    }
 }

@@ -242,8 +242,6 @@ pub fn validate_ssl_args(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-    use std::fs;
 
     #[test]
     fn test_detect_format() {
@@ -301,5 +299,110 @@ mod tests {
         let result = validate_ssl_args(Some("cert.pem"), Some("key.pem"), None);
         assert!(result.is_ok());
         assert!(result.unwrap().is_some());
+    }
+
+    #[test]
+    fn test_detect_format_edge_cases() {
+        // Test various file extensions
+        assert!(matches!(TlsConfig::detect_format(Path::new("cert.PFX")), CertFormat::Pkcs12)); // Uppercase
+        assert!(matches!(TlsConfig::detect_format(Path::new("cert.P12")), CertFormat::Pkcs12)); // Uppercase
+        assert!(matches!(TlsConfig::detect_format(Path::new("certificate.crt")), CertFormat::Pem));
+        assert!(matches!(TlsConfig::detect_format(Path::new("key.key")), CertFormat::Pem));
+        assert!(matches!(TlsConfig::detect_format(Path::new("cert.der")), CertFormat::Pem)); // DER defaults to PEM
+        
+        // No extension should default to PEM
+        assert!(matches!(TlsConfig::detect_format(Path::new("mycert")), CertFormat::Pem));
+        
+        // Path with multiple dots
+        assert!(matches!(TlsConfig::detect_format(Path::new("my.cert.pem")), CertFormat::Pem));
+        assert!(matches!(TlsConfig::detect_format(Path::new("my.cert.pfx")), CertFormat::Pkcs12));
+    }
+
+    #[test]
+    fn test_tls_config_validation_combinations() {
+        // PEM with both cert and key - valid
+        let result = TlsConfig::from_args("server.pem", Some("server.key"), None);
+        assert!(result.is_ok());
+        
+        // PEM with cert, key, and passphrase - valid
+        let result = TlsConfig::from_args("server.pem", Some("server.key"), Some("pass.txt"));
+        assert!(result.is_ok());
+        
+        // PKCS12 with cert only - valid
+        let result = TlsConfig::from_args("server.p12", None, None);
+        assert!(result.is_ok());
+        
+        // PKCS12 with cert and passphrase - valid
+        let result = TlsConfig::from_args("server.p12", None, Some("pass.txt"));
+        assert!(result.is_ok());
+        
+        // PKCS12 with cert and key (should still work, key will be ignored)
+        let result = TlsConfig::from_args("server.pfx", Some("ignored.key"), None);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.key_path, Some(PathBuf::from("ignored.key")));
+    }
+
+    #[test]
+    fn test_error_display_formatting() {
+        let io_error = TlsError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"));
+        assert!(io_error.to_string().contains("IO error"));
+        
+        let cert_error = TlsError::InvalidCertificate("bad cert".to_string());
+        assert_eq!(cert_error.to_string(), "Invalid certificate: bad cert");
+        
+        let key_error = TlsError::InvalidPrivateKey("bad key".to_string());
+        assert_eq!(key_error.to_string(), "Invalid private key: bad key");
+        
+        let missing_key = TlsError::MissingPrivateKey;
+        assert_eq!(missing_key.to_string(), "Private key is required for PEM certificates");
+        
+        let passphrase_error = TlsError::InvalidPassphrase("wrong pass".to_string());
+        assert_eq!(passphrase_error.to_string(), "Invalid passphrase: wrong pass");
+        
+        let pkcs12_error = TlsError::Pkcs12Error("p12 issue".to_string());
+        assert_eq!(pkcs12_error.to_string(), "PKCS12 error: p12 issue");
+        
+        let config_error = TlsError::ConfigError("config issue".to_string());
+        assert_eq!(config_error.to_string(), "TLS configuration error: config issue");
+    }
+
+    #[test]
+    fn test_validate_ssl_args_edge_cases() {
+        // Only passphrase provided (invalid)
+        let result = validate_ssl_args(None, None, Some("pass.txt"));
+        assert!(matches!(result, Err(TlsError::ConfigError(_))));
+        
+        // Only key provided (invalid)
+        let result = validate_ssl_args(None, Some("key.pem"), None);
+        assert!(matches!(result, Err(TlsError::ConfigError(_))));
+        
+        // Key and passphrase without cert (invalid)
+        let result = validate_ssl_args(None, Some("key.pem"), Some("pass.txt"));
+        assert!(matches!(result, Err(TlsError::ConfigError(_))));
+    }
+
+    #[test]
+    fn test_tls_config_path_handling() {
+        let config = TlsConfig::from_args("/absolute/path/cert.pem", Some("/absolute/path/key.pem"), None).unwrap();
+        assert_eq!(config.cert_path, PathBuf::from("/absolute/path/cert.pem"));
+        assert_eq!(config.key_path, Some(PathBuf::from("/absolute/path/key.pem")));
+        
+        let config = TlsConfig::from_args("relative/cert.pfx", None, Some("relative/pass.txt")).unwrap();
+        assert_eq!(config.cert_path, PathBuf::from("relative/cert.pfx"));
+        assert_eq!(config.passphrase_path, Some(PathBuf::from("relative/pass.txt")));
+    }
+
+    #[test]
+    fn test_certificate_format_consistency() {
+        // Ensure format detection is consistent with validation
+        let pem_config = TlsConfig::from_args("cert.pem", Some("key.pem"), None).unwrap();
+        assert!(matches!(pem_config.format, CertFormat::Pem));
+        
+        let p12_config = TlsConfig::from_args("cert.p12", None, Some("pass.txt")).unwrap();
+        assert!(matches!(p12_config.format, CertFormat::Pkcs12));
+        
+        let pfx_config = TlsConfig::from_args("cert.pfx", None, None).unwrap();
+        assert!(matches!(pfx_config.format, CertFormat::Pkcs12));
     }
 }

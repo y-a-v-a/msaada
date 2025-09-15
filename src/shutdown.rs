@@ -201,7 +201,7 @@ mod tests {
             Err(_) => {
                 // Expected timeout - signal handling is running in background
                 // Just verify we can call the function without errors
-                let result = setup_basic_signal_handling().await;
+                let _result = setup_basic_signal_handling().await;
                 // The setup itself should complete immediately
                 // (only the spawned task runs indefinitely)
             },
@@ -226,5 +226,188 @@ mod tests {
         }
         
         // Test passes if no panic occurs during drop
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_manager_double_shutdown() {
+        let mut manager = ShutdownManager::new();
+        
+        // Set up with dummy channels
+        let (tx1, _rx1) = oneshot::channel::<()>();
+        manager.shutdown_tx = Some(tx1);
+        
+        // First shutdown
+        manager.shutdown();
+        assert!(manager.shutdown_tx.is_none());
+        
+        // Second shutdown should not panic
+        manager.shutdown();
+        assert!(manager.shutdown_tx.is_none());
+    }
+
+    #[test]
+    fn test_shutdown_manager_get_server_handle() {
+        let manager = ShutdownManager::new();
+        
+        // Get server handle
+        let handle1 = manager.get_server_handle();
+        let handle2 = manager.get_server_handle();
+        
+        // Both should point to the same Arc
+        assert!(Arc::ptr_eq(&handle1, &handle2));
+        
+        // Should be empty initially
+        assert!(handle1.lock().unwrap().is_none());
+        assert!(handle2.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_manager_with_mock_server_handle() {
+        let mut manager = ShutdownManager::new();
+        
+        // We can't easily create a real ServerHandle in tests since it requires 
+        // starting the actual server, so we'll just test the manager's behavior
+        // without a server handle, which should not panic
+        
+        // Verify the handle is initially empty
+        {
+            let handle = manager.server_handle.lock().unwrap();
+            assert!(handle.is_none());
+        }
+        
+        // Shutdown should not panic even without a server handle
+        manager.shutdown();
+        
+        // State should be clean after shutdown
+        assert!(manager.shutdown_tx.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_basic_signal_handling_multiple_calls() {
+        // Should be able to call setup_basic_signal_handling multiple times
+        let result1 = setup_basic_signal_handling().await;
+        let result2 = setup_basic_signal_handling().await;
+        let result3 = setup_basic_signal_handling().await;
+        
+        // All should succeed
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+        assert!(result3.is_ok());
+    }
+
+    #[test]
+    fn test_shutdown_manager_thread_safety() {
+        use std::thread;
+        use std::sync::Arc;
+        
+        let manager = Arc::new(std::sync::Mutex::new(ShutdownManager::new()));
+        let mut handles = vec![];
+        
+        // Spawn multiple threads that interact with the manager
+        for i in 0..3 {
+            let manager_clone = Arc::clone(&manager);
+            let handle = thread::spawn(move || {
+                let manager = manager_clone.lock().unwrap();
+                
+                // Get server handle (should not panic)
+                let _server_handle = manager.get_server_handle();
+                
+                // Verify initial state
+                assert!(manager.shutdown_tx.is_none());
+                assert!(manager.signal_handle.is_none());
+                
+                println!("Thread {} completed", i);
+            });
+            handles.push(handle);
+        }
+        
+        // Wait for all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_shutdown_manager_no_server_handle() {
+        let mut manager = ShutdownManager::new();
+        
+        // Test shutdown without any server handle set
+        manager.shutdown(); // Should not panic
+        
+        // Verify state
+        assert!(manager.shutdown_tx.is_none());
+        assert!(manager.signal_handle.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_signal_channel_communication() {
+        let mut manager = ShutdownManager::new();
+        
+        // Create channels for testing
+        let (tx, rx) = oneshot::channel::<()>();
+        manager.shutdown_tx = Some(tx);
+        
+        // Trigger shutdown in one task
+        let mut manager_clone = ShutdownManager::new();
+        std::mem::swap(&mut manager.shutdown_tx, &mut manager_clone.shutdown_tx);
+        
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            manager_clone.shutdown();
+        });
+        
+        // Wait for shutdown signal
+        let result = timeout(Duration::from_millis(100), rx).await;
+        
+        // Should receive the signal
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_manager_state_transitions() {
+        let mut manager = ShutdownManager::new();
+        
+        // Initial state
+        assert!(manager.shutdown_tx.is_none());
+        assert!(manager.signal_handle.is_none());
+        
+        // Add a shutdown channel
+        let (tx, _rx) = oneshot::channel::<()>();
+        manager.shutdown_tx = Some(tx);
+        
+        // State after adding channel
+        assert!(manager.shutdown_tx.is_some());
+        assert!(manager.signal_handle.is_none());
+        
+        // After shutdown
+        manager.shutdown();
+        assert!(manager.shutdown_tx.is_none());
+        assert!(manager.signal_handle.is_none());
+    }
+
+    #[test]
+    fn test_shutdown_manager_concurrent_access() {
+        use std::sync::Arc;
+        use std::thread;
+        
+        let manager = Arc::new(std::sync::Mutex::new(ShutdownManager::new()));
+        let manager1 = Arc::clone(&manager);
+        let manager2 = Arc::clone(&manager);
+        
+        let handle1 = thread::spawn(move || {
+            let manager = manager1.lock().unwrap();
+            let _handle = manager.get_server_handle();
+            thread::sleep(std::time::Duration::from_millis(10));
+        });
+        
+        let handle2 = thread::spawn(move || {
+            let manager = manager2.lock().unwrap();
+            let _handle = manager.get_server_handle();
+            thread::sleep(std::time::Duration::from_millis(10));
+        });
+        
+        handle1.join().unwrap();
+        handle2.join().unwrap();
     }
 }
