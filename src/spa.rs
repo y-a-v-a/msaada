@@ -2,9 +2,7 @@
 // Single Page Application support and advanced web features
 
 use actix_files::NamedFile;
-use actix_web::{
-    web, HttpRequest, HttpResponse, Result,
-};
+use actix_web::{web, HttpRequest, HttpResponse, Result};
 use std::path::PathBuf;
 
 /// SPA fallback handler that serves index.html for all non-API routes
@@ -15,21 +13,21 @@ pub async fn spa_fallback_handler(
     directory: web::Data<PathBuf>,
 ) -> Result<HttpResponse> {
     let path = req.path();
-    
+
     // Use the should_use_spa_fallback function to determine if we should handle this route
     if !should_use_spa_fallback(path) {
         return Ok(HttpResponse::NotFound().finish());
     }
-    
+
     // Serve index.html for SPA routes
     let index_path = directory.join("index.html");
-    
+
     if index_path.exists() {
         match NamedFile::open(&index_path) {
             Ok(file) => {
                 let response = file.into_response(&req);
                 Ok(response.into())
-            },
+            }
             Err(_) => Ok(HttpResponse::NotFound().finish()),
         }
     } else {
@@ -46,26 +44,30 @@ pub async fn configurable_spa_handler(
     rewrites: Vec<crate::config::Rewrite>,
 ) -> Result<HttpResponse> {
     let path = req.path();
-    
+
     // First, apply URL rewrites if configured
     let processed_path = apply_url_rewrites(path, &rewrites);
-    let processed_path = if clean_urls { apply_clean_urls(&processed_path) } else { processed_path };
+    let processed_path = if clean_urls {
+        apply_clean_urls(&processed_path)
+    } else {
+        processed_path
+    };
     let processed_path = apply_trailing_slash(&processed_path, trailing_slash);
-    
+
     // Use the should_use_spa_fallback function to determine if we should handle this route
     if !should_use_spa_fallback(&processed_path) {
         return Ok(HttpResponse::NotFound().finish());
     }
-    
+
     // Serve index.html for SPA routes
     let index_path = directory.join("index.html");
-    
+
     if index_path.exists() {
         match NamedFile::open(&index_path) {
             Ok(file) => {
                 let response = file.into_response(&req);
                 Ok(response.into())
-            },
+            }
             Err(_) => Ok(HttpResponse::NotFound().finish()),
         }
     } else {
@@ -82,17 +84,15 @@ pub fn should_use_spa_fallback(path: &str) -> bool {
     // - Static assets (files with extensions)
     // - Special routes starting with underscore
     // - Root path (/)
-    
+
     if path == "/" {
         return false;
     }
-    
-    if path.starts_with("/api/") || 
-       path.starts_with("/_") ||
-       path.contains('.') {
+
+    if path.starts_with("/api/") || path.starts_with("/_") || path.contains('.') {
         return false;
     }
-    
+
     true
 }
 
@@ -104,12 +104,12 @@ pub fn apply_url_rewrites(path: &str, rewrites: &[crate::config::Rewrite]) -> St
         if rewrite.source == "**" || path.starts_with(&rewrite.source) {
             return rewrite.destination.clone();
         }
-        
+
         // Exact match
         if rewrite.source == path {
             return rewrite.destination.clone();
         }
-        
+
         // Wildcard matching (simplified)
         if rewrite.source.ends_with("*") {
             let prefix = &rewrite.source[..rewrite.source.len() - 1];
@@ -118,7 +118,7 @@ pub fn apply_url_rewrites(path: &str, rewrites: &[crate::config::Rewrite]) -> St
             }
         }
     }
-    
+
     path.to_string()
 }
 
@@ -153,7 +153,7 @@ mod tests {
         assert!(should_use_spa_fallback("/about"));
         assert!(should_use_spa_fallback("/user/profile"));
         assert!(should_use_spa_fallback("/settings/account"));
-        
+
         // Should NOT use SPA fallback
         assert!(!should_use_spa_fallback("/"));
         assert!(!should_use_spa_fallback("/api/users"));
@@ -182,12 +182,15 @@ mod tests {
 
         // Exact match
         assert_eq!(apply_url_rewrites("/old-path", &rewrites), "/new-path");
-        
+
         // Wildcard match
         assert_eq!(apply_url_rewrites("/api/users", &rewrites), "/v1/api/");
-        
+
         // Catch-all match
-        assert_eq!(apply_url_rewrites("/some/random/path", &rewrites), "/index.html");
+        assert_eq!(
+            apply_url_rewrites("/some/random/path", &rewrites),
+            "/index.html"
+        );
     }
 
     #[test]
@@ -203,13 +206,19 @@ mod tests {
     fn test_apply_trailing_slash() {
         // Add trailing slash
         assert_eq!(apply_trailing_slash("/about", true), "/about/");
-        assert_eq!(apply_trailing_slash("/user/profile", true), "/user/profile/");
+        assert_eq!(
+            apply_trailing_slash("/user/profile", true),
+            "/user/profile/"
+        );
         assert_eq!(apply_trailing_slash("/", true), "/"); // Root unchanged
         assert_eq!(apply_trailing_slash("/style.css", true), "/style.css"); // Files unchanged
-        
+
         // Remove trailing slash
         assert_eq!(apply_trailing_slash("/about/", false), "/about");
-        assert_eq!(apply_trailing_slash("/user/profile/", false), "/user/profile");
+        assert_eq!(
+            apply_trailing_slash("/user/profile/", false),
+            "/user/profile"
+        );
         assert_eq!(apply_trailing_slash("/", false), "/"); // Root unchanged
         assert_eq!(apply_trailing_slash("/about", false), "/about"); // No slash to remove
     }
@@ -226,23 +235,32 @@ mod tests {
                 destination: "/modern/".to_string(),
             },
             Rewrite {
-                source: "/docs/(.*)".to_string(),  // Regex-style (simplified)
+                source: "/docs/(.*)".to_string(), // Regex-style (simplified)
                 destination: "/documentation/$1".to_string(),
             },
             Rewrite {
-                source: "/app/**".to_string(),  // Double wildcard
+                source: "/app/**".to_string(), // Double wildcard
                 destination: "/application/".to_string(),
             },
         ];
 
         // Test wildcard matching
         assert_eq!(apply_url_rewrites("/api/v1/users", &rewrites), "/api/v2/");
-        assert_eq!(apply_url_rewrites("/api/v1/posts/123", &rewrites), "/api/v2/");
-        assert_eq!(apply_url_rewrites("/legacy/dashboard", &rewrites), "/modern/");
-        
-        // Test double wildcard - the current implementation doesn't support ** in the middle  
-        assert_eq!(apply_url_rewrites("/app/deep/nested/path", &rewrites), "/app/deep/nested/path");
-        
+        assert_eq!(
+            apply_url_rewrites("/api/v1/posts/123", &rewrites),
+            "/api/v2/"
+        );
+        assert_eq!(
+            apply_url_rewrites("/legacy/dashboard", &rewrites),
+            "/modern/"
+        );
+
+        // Test double wildcard - the current implementation doesn't support ** in the middle
+        assert_eq!(
+            apply_url_rewrites("/app/deep/nested/path", &rewrites),
+            "/app/deep/nested/path"
+        );
+
         // Test no match
         assert_eq!(apply_url_rewrites("/nomatch", &rewrites), "/nomatch");
     }
@@ -265,13 +283,19 @@ mod tests {
         ];
 
         // Specific match should take precedence
-        assert_eq!(apply_url_rewrites("/api/specific", &rewrites), "/specific-endpoint");
-        
+        assert_eq!(
+            apply_url_rewrites("/api/specific", &rewrites),
+            "/specific-endpoint"
+        );
+
         // Wildcard match
         assert_eq!(apply_url_rewrites("/api/users", &rewrites), "/general-api/");
-        
+
         // Catch-all match
-        assert_eq!(apply_url_rewrites("/something/else", &rewrites), "/catch-all");
+        assert_eq!(
+            apply_url_rewrites("/something/else", &rewrites),
+            "/catch-all"
+        );
     }
 
     #[test]
@@ -284,24 +308,24 @@ mod tests {
         assert!(!should_use_spa_fallback("/data.json"));
         assert!(!should_use_spa_fallback("/font.woff2"));
         assert!(!should_use_spa_fallback("/video.mp4"));
-        
+
         // Test API variations
-        assert!(should_use_spa_fallback("/api"));       // Just /api without trailing slash should use fallback
+        assert!(should_use_spa_fallback("/api")); // Just /api without trailing slash should use fallback
         assert!(!should_use_spa_fallback("/api/v1/users"));
         assert!(!should_use_spa_fallback("/api/graphql"));
         assert!(should_use_spa_fallback("/application")); // Not /api/
-        
+
         // Test underscore prefixed paths
         assert!(!should_use_spa_fallback("/_health"));
         assert!(!should_use_spa_fallback("/_next/static/chunks/main.js"));
         assert!(!should_use_spa_fallback("/_admin/login"));
         assert!(should_use_spa_fallback("/admin/login")); // No underscore
-        
+
         // Test complex paths
         assert!(should_use_spa_fallback("/user/profile/settings"));
         assert!(should_use_spa_fallback("/dashboard"));
         assert!(should_use_spa_fallback("/products/category/electronics"));
-        
+
         // Test root and empty paths
         assert!(!should_use_spa_fallback("/"));
         assert!(should_use_spa_fallback("")); // Empty string doesn't match any exclude rules
@@ -312,24 +336,24 @@ mod tests {
         // Standard cases
         assert_eq!(apply_clean_urls("/page.html"), "/page");
         assert_eq!(apply_clean_urls("/nested/page.html"), "/nested/page");
-        
+
         // Keep only root index.html
         assert_eq!(apply_clean_urls("/index.html"), "/index.html");
         assert_eq!(apply_clean_urls("/folder/index.html"), "/folder/index");
-        
+
         // Non-HTML files unchanged
         assert_eq!(apply_clean_urls("/style.css"), "/style.css");
         assert_eq!(apply_clean_urls("/script.js"), "/script.js");
         assert_eq!(apply_clean_urls("/data.json"), "/data.json");
-        
+
         // Files without extensions
         assert_eq!(apply_clean_urls("/about"), "/about");
         assert_eq!(apply_clean_urls("/contact"), "/contact");
-        
+
         // Edge cases with multiple dots
         assert_eq!(apply_clean_urls("/my.page.html"), "/my.page");
         assert_eq!(apply_clean_urls("/file.backup.html"), "/file.backup");
-        
+
         // Empty and root paths
         assert_eq!(apply_clean_urls("/"), "/");
         assert_eq!(apply_clean_urls(""), "");
@@ -339,11 +363,17 @@ mod tests {
     fn test_trailing_slash_with_query_params() {
         // Note: Current implementation doesn't handle query params,
         // but these tests document expected behavior
-        
+
         // Paths with query parameters (current behavior)
-        assert_eq!(apply_trailing_slash("/search?q=test", true), "/search?q=test/");
-        assert_eq!(apply_trailing_slash("/api/data?format=json", false), "/api/data?format=json");
-        
+        assert_eq!(
+            apply_trailing_slash("/search?q=test", true),
+            "/search?q=test/"
+        );
+        assert_eq!(
+            apply_trailing_slash("/api/data?format=json", false),
+            "/api/data?format=json"
+        );
+
         // This shows the limitation - ideally we'd want:
         // "/search?q=test" -> "/search/?q=test" when adding slash
         // But current implementation treats ? as part of the path
@@ -351,19 +381,17 @@ mod tests {
 
     #[test]
     fn test_url_processing_chain() {
-        let rewrites = vec![
-            Rewrite {
-                source: "/old-path".to_string(),
-                destination: "/new-path.html".to_string(),
-            }
-        ];
-        
+        let rewrites = vec![Rewrite {
+            source: "/old-path".to_string(),
+            destination: "/new-path.html".to_string(),
+        }];
+
         // Test the full chain: rewrite -> clean URLs -> trailing slash
         let path = "/old-path";
-        let step1 = apply_url_rewrites(path, &rewrites);     // "/new-path.html"
-        let step2 = apply_clean_urls(&step1);                // "/new-path" 
-        let step3 = apply_trailing_slash(&step2, true);      // "/new-path/"
-        
+        let step1 = apply_url_rewrites(path, &rewrites); // "/new-path.html"
+        let step2 = apply_clean_urls(&step1); // "/new-path"
+        let step3 = apply_trailing_slash(&step2, true); // "/new-path/"
+
         assert_eq!(step1, "/new-path.html");
         assert_eq!(step2, "/new-path");
         assert_eq!(step3, "/new-path/");
@@ -372,8 +400,11 @@ mod tests {
     #[test]
     fn test_empty_and_malformed_rewrites() {
         let empty_rewrites: Vec<Rewrite> = vec![];
-        assert_eq!(apply_url_rewrites("/any/path", &empty_rewrites), "/any/path");
-        
+        assert_eq!(
+            apply_url_rewrites("/any/path", &empty_rewrites),
+            "/any/path"
+        );
+
         let malformed_rewrites = vec![
             Rewrite {
                 source: "".to_string(),
@@ -384,12 +415,18 @@ mod tests {
                 destination: "".to_string(),
             },
         ];
-        
+
         // Empty source matches everything (any string starts with empty string)
-        assert_eq!(apply_url_rewrites("/test", &malformed_rewrites), "/fallback");
-        
+        assert_eq!(
+            apply_url_rewrites("/test", &malformed_rewrites),
+            "/fallback"
+        );
+
         // Valid source would match second rule, but first rule matches everything
-        assert_eq!(apply_url_rewrites("/valid", &malformed_rewrites), "/fallback");
+        assert_eq!(
+            apply_url_rewrites("/valid", &malformed_rewrites),
+            "/fallback"
+        );
     }
 
     #[test]
@@ -404,14 +441,14 @@ mod tests {
                 destination: "/api-wildcard/".to_string(),
             },
         ];
-        
+
         // Due to processing order, "/api" starts with "/api", so first rule matches
         assert_eq!(apply_url_rewrites("/api", &rewrites), "/api-exact");
-        
-        // "/api/users" starts with "/api", so first rule matches  
+
+        // "/api/users" starts with "/api", so first rule matches
         assert_eq!(apply_url_rewrites("/api/users", &rewrites), "/api-exact");
-        
-        // Non-matching paths  
+
+        // Non-matching paths
         assert_eq!(apply_url_rewrites("/apiold", &rewrites), "/api-exact"); // Actually matches due to starts_with
         assert_eq!(apply_url_rewrites("/other", &rewrites), "/other");
     }
@@ -422,11 +459,11 @@ mod tests {
         assert!(should_use_spa_fallback("/café/menu"));
         assert!(should_use_spa_fallback("/résumé"));
         assert!(should_use_spa_fallback("/测试/页面"));
-        
-        // Test URL encoding scenarios  
+
+        // Test URL encoding scenarios
         assert!(should_use_spa_fallback("/user%20profile"));
         assert!(should_use_spa_fallback("/search%3Fq%3Dtest"));
-        
+
         // These should still not use SPA fallback due to dot
         assert!(!should_use_spa_fallback("/café.html"));
         assert!(!should_use_spa_fallback("/测试.js"));
@@ -444,7 +481,7 @@ mod tests {
                 destination: "/api-lower/".to_string(),
             },
         ];
-        
+
         // Test case sensitivity (current implementation is case-sensitive)
         assert_eq!(apply_url_rewrites("/API/users", &rewrites), "/api-upper/");
         assert_eq!(apply_url_rewrites("/api/users", &rewrites), "/api-lower/");

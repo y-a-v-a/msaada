@@ -6,14 +6,15 @@ mod shutdown;
 mod spa;
 mod tls;
 
-use actix_files::Files;
-use actix_web::{
-    middleware::{DefaultHeaders, Compress}, 
-    web, App, Error, HttpRequest, HttpResponse, HttpServer, 
-    Responder, post, get, dev::{Service, ServiceRequest, ServiceResponse, Transform},
-};
 use actix_cors::Cors;
+use actix_files::Files;
 use actix_multipart::Multipart;
+use actix_web::{
+    dev::{Service, ServiceRequest, ServiceResponse, Transform},
+    get,
+    middleware::{Compress, DefaultHeaders},
+    post, web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder,
+};
 use clap::Arg;
 use clap::Command;
 use futures_util::{future::LocalBoxFuture, stream::StreamExt};
@@ -60,13 +61,16 @@ where
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(&self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        &self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let start_time = Instant::now();
-        
+
         // Extract request information
         let method = req.method().to_string();
         let path = req.path().to_string();
@@ -82,11 +86,17 @@ where
             let res = fut.await?;
             let response_time = start_time.elapsed().as_millis();
             let status = res.status().as_u16();
-            
+
             // Log the request using our custom logger
             let logger = logger::get_logger();
-            logger.http(&client_ip, &method, &path, Some(status), Some(response_time));
-            
+            logger.http(
+                &client_ip,
+                &method,
+                &path,
+                Some(status),
+                Some(response_time),
+            );
+
             Ok(res)
         })
     }
@@ -101,20 +111,20 @@ async fn handle_post(
 ) -> Result<impl Responder, Error> {
     let path_str = path.into_inner();
     log::info!("Received POST request to path: {}", path_str);
-    
+
     // Extract content type
     let content_type = headers
         .headers()
         .get(actix_web::http::header::CONTENT_TYPE)
         .and_then(|h| h.to_str().ok())
         .unwrap_or("application/octet-stream");
-        
+
     // Create a response object that will be filled with the request data
     let mut response_data: Value = json!({
         "path": path_str,
         "content_type": content_type,
     });
-    
+
     // Parse the content type
     if let Ok(mime_type) = content_type.parse::<mime::Mime>() {
         match (mime_type.type_(), mime_type.subtype()) {
@@ -123,7 +133,7 @@ async fn handle_post(
                 let mut multipart = Multipart::new(headers.headers(), payload);
                 let mut files = Vec::new();
                 let mut form_fields = HashMap::new();
-                
+
                 while let Some(item) = multipart.next().await {
                     match item {
                         Ok(field) => {
@@ -132,7 +142,7 @@ async fn handle_post(
                                 .get_name()
                                 .unwrap_or("unknown")
                                 .to_string();
-                                
+
                             // If it's a file, just store the filename
                             if let Some(filename) = content_disposition.get_filename() {
                                 files.push(json!({
@@ -146,7 +156,7 @@ async fn handle_post(
                                 while let Some(chunk) = field_stream.next().await {
                                     data.extend_from_slice(&chunk?);
                                 }
-                                
+
                                 if let Ok(value) = String::from_utf8(data) {
                                     form_fields.insert(name, value);
                                 }
@@ -159,84 +169,88 @@ async fn handle_post(
                         }
                     }
                 }
-                
+
                 response_data["form_data"] = json!(form_fields);
                 if !files.is_empty() {
                     response_data["files"] = json!(files);
                 }
-            },
-            
+            }
+
             // Handle application/json
             (mime::APPLICATION, mime::JSON) => {
                 let bytes = web::BytesMut::new();
                 let mut body = bytes;
                 let mut stream = payload;
-                
+
                 while let Some(chunk) = stream.next().await {
                     body.extend_from_slice(&chunk?);
                 }
-                
+
                 match serde_json::from_slice::<Value>(&body) {
                     Ok(json_data) => {
                         response_data["json_data"] = json_data;
-                    },
+                    }
                     Err(e) => {
                         return Ok(HttpResponse::BadRequest().json(json!({
                             "error": format!("JSON parse error: {}", e)
                         })));
                     }
                 }
-            },
-            
+            }
+
             // Handle application/x-www-form-urlencoded
             (mime::APPLICATION, sub) if sub == "x-www-form-urlencoded" => {
                 let bytes = web::BytesMut::new();
                 let mut body = bytes;
                 let mut stream = payload;
-                
+
                 while let Some(chunk) = stream.next().await {
                     body.extend_from_slice(&chunk?);
                 }
-                
+
                 let body_str = String::from_utf8_lossy(&body);
                 let mut form_fields = HashMap::new();
-                
+
                 for pair in body_str.split('&') {
                     if let Some(index) = pair.find('=') {
                         let key = &pair[..index];
                         let value = &pair[index + 1..];
-                        
+
                         // Simple URL decoding
-                        let decoded_key = urlencoding::decode(key).unwrap_or_else(|_| key.into()).to_string();
-                        let decoded_value = urlencoding::decode(value).unwrap_or_else(|_| value.into()).to_string();
-                        
+                        let decoded_key = urlencoding::decode(key)
+                            .unwrap_or_else(|_| key.into())
+                            .to_string();
+                        let decoded_value = urlencoding::decode(value)
+                            .unwrap_or_else(|_| value.into())
+                            .to_string();
+
                         form_fields.insert(decoded_key, decoded_value);
                     }
                 }
-                
+
                 response_data["form_data"] = json!(form_fields);
-            },
-            
+            }
+
             // Handle text/* content type (plain text)
             (mime::TEXT, _) => {
                 let bytes = web::BytesMut::new();
                 let mut body = bytes;
                 let mut stream = payload;
-                
+
                 while let Some(chunk) = stream.next().await {
                     body.extend_from_slice(&chunk?);
                 }
-                
+
                 match String::from_utf8(body.to_vec()) {
                     Ok(text) => {
                         response_data["text_data"] = json!(text);
-                    },
+                    }
                     Err(_) => {
                         response_data["binary_data"] = json!("<binary data received>");
                     }
                 }
-            },
-            
+            }
+
             // Handle all other content types as binary
             _ => {
                 response_data["binary_data"] = json!("<binary data received>");
@@ -246,7 +260,7 @@ async fn handle_post(
         // Fallback if content type can't be parsed
         response_data["error"] = json!(format!("Invalid content type: {}", content_type));
     }
-    
+
     Ok(HttpResponse::Ok().json(response_data))
 }
 
@@ -264,56 +278,54 @@ async fn self_test_endpoint() -> impl Responder {
             "note": "Server restart required to run test again"
         }));
     }
-    
+
     // Mark test as run
     SELF_TEST_RUN.store(true, Ordering::SeqCst);
-    
+
     // Test JSON POST
     let client = awc::Client::new();
-    let json_test = client.post("http://localhost:3000/test-json")
+    let json_test = client
+        .post("http://localhost:3000/test-json")
         .insert_header(("Content-Type", "application/json"))
         .send_json(&json!({"test": "value", "number": 42}))
         .await;
-        
+
     // Test form POST
-    let form_test = client.post("http://localhost:3000/test-form")
+    let form_test = client
+        .post("http://localhost:3000/test-form")
         .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
         .send_body("name=test&value=123")
         .await;
-        
+
     // Check results
     let json_success = match json_test {
         Ok(mut res) => {
             if res.status().is_success() {
                 match res.json::<Value>().await {
-                    Ok(body) => {
-                        body.get("json_data").is_some()
-                    },
-                    Err(_) => false
+                    Ok(body) => body.get("json_data").is_some(),
+                    Err(_) => false,
                 }
             } else {
                 false
             }
-        },
-        Err(_) => false
+        }
+        Err(_) => false,
     };
-    
+
     let form_success = match form_test {
         Ok(mut res) => {
             if res.status().is_success() {
                 match res.json::<Value>().await {
-                    Ok(body) => {
-                        body.get("form_data").is_some()
-                    },
-                    Err(_) => false
+                    Ok(body) => body.get("form_data").is_some(),
+                    Err(_) => false,
                 }
             } else {
                 false
             }
-        },
-        Err(_) => false
+        }
+        Err(_) => false,
     };
-    
+
     // Return test results
     HttpResponse::Ok().json(json!({
         "status": "Self-test complete",
@@ -337,7 +349,7 @@ async fn main() -> std::io::Result<()> {
     const HTML_TEMPLATE: &str = include_str!("index_template.html");
     const CSS_TEMPLATE: &str = include_str!("style_template.css");
     const JS_TEMPLATE: &str = include_str!("main_template.js");
-    
+
     let key = "RUST_LOG";
     env::set_var(key, "msaada=info");
 
@@ -467,7 +479,7 @@ async fn main() -> std::io::Result<()> {
     let enable_timestamps = !matches.get_flag("no-timestamps");
     logger::init_logger(enable_request_logging, enable_timestamps);
     let app_logger = logger::get_logger();
-    
+
     // Log startup information using new logger
     app_logger.startup_info(PKG_NAME, PKG_VERSION, PKG_AUTHORS);
 
@@ -478,7 +490,7 @@ async fn main() -> std::io::Result<()> {
     let dir = Path::new(&dir_arg);
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let serve_dir = dir.to_path_buf();
-    
+
     let is_path_set = env::set_current_dir(dir);
 
     match is_path_set {
@@ -511,7 +523,7 @@ async fn main() -> std::io::Result<()> {
     let port_switching_disabled = matches.get_flag("no-port-switching");
     let symlinks_enabled = matches.get_flag("symlinks");
     let etag_disabled = matches.get_flag("no-etag");
-    
+
     // Merge CLI flags with configuration (CLI flags override config)
     let effective_single_page_app = single_page_app || configuration.render_single;
     let effective_symlinks_enabled = symlinks_enabled || configuration.symlinks;
@@ -519,14 +531,14 @@ async fn main() -> std::io::Result<()> {
     let effective_clean_urls = configuration.clean_urls;
     let effective_trailing_slash = configuration.trailing_slash;
     let effective_compression_enabled = !compression_disabled;
-    
+
     // Use the public directory from configuration if available, otherwise use serve_dir
     let effective_serve_dir = if let Some(ref public_dir) = configuration.public {
         PathBuf::from(public_dir)
     } else {
         serve_dir.clone()
     };
-    
+
     // Setup clipboard manager
     let clipboard_manager = clipboard::ClipboardManager::new(!clipboard_disabled);
 
@@ -541,14 +553,18 @@ async fn main() -> std::io::Result<()> {
 
     // Resolve the port - check availability and auto-switch if needed
     let allow_port_switching = !port_switching_disabled;
-    let actual_port = match network::NetworkUtils::resolve_port("0.0.0.0", requested_port, allow_port_switching) {
+    let actual_port = match network::NetworkUtils::resolve_port(
+        "0.0.0.0",
+        requested_port,
+        allow_port_switching,
+    ) {
         Ok(port) => port,
         Err(e) => {
             app_logger.error(&e);
             exit(1);
         }
     };
-    
+
     let previous_port = if actual_port != requested_port {
         Some(requested_port)
     } else {
@@ -559,37 +575,37 @@ async fn main() -> std::io::Result<()> {
     let index_path = PathBuf::from("index.html");
     let css_path = PathBuf::from("style.css");
     let js_path = PathBuf::from("main.js");
-    
+
     // Check if --init flag was provided
     let init_flag = matches.get_flag("init");
-    
+
     // Check if --test flag was provided
     let test_flag = matches.get_flag("test");
-    
+
     if init_flag {
         // Initialize the files without prompting if --init flag was used
         let index_exists = index_path.exists();
         let css_exists = css_path.exists();
         let js_exists = js_path.exists();
-        
+
         let mut created_files = Vec::new();
-        
+
         // Create any missing files from the templates
         if !index_exists {
             fs::write(&index_path, HTML_TEMPLATE)?;
             created_files.push("index.html");
         }
-        
+
         if !css_exists {
             fs::write(&css_path, CSS_TEMPLATE)?;
             created_files.push("style.css");
         }
-        
+
         if !js_exists {
             fs::write(&js_path, JS_TEMPLATE)?;
             created_files.push("main.js");
         }
-        
+
         if !created_files.is_empty() {
             app_logger.info(&format!("Created files: {}", created_files.join(", ")));
         } else {
@@ -598,8 +614,13 @@ async fn main() -> std::io::Result<()> {
     } else {
         // Without --init flag, only check if index.html exists and warn if missing
         if !index_path.exists() {
-            app_logger.warn(&format!("index.html not found in {}. The server will run but may not serve a default page.", dir_arg));
-            app_logger.info("Tip: Use --init flag to create basic web files (index.html, style.css, main.js).");
+            app_logger.warn(&format!(
+                "index.html not found in {}. The server will run but may not serve a default page.",
+                dir_arg
+            ));
+            app_logger.info(
+                "Tip: Use --init flag to create basic web files (index.html, style.css, main.js).",
+            );
         }
     }
 
@@ -607,39 +628,53 @@ async fn main() -> std::io::Result<()> {
     if std::env::var(key).is_err() {
         std::env::set_var(key, "msaada=debug,actix_web=debug");
     }
-    
+
     // Initialize logging
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-    
+
     // Create server addresses for display
     let uses_https = tls_config.is_some();
     let server_addresses = network::NetworkUtils::create_server_addresses(
-        "0.0.0.0", 
-        actual_port, 
+        "0.0.0.0",
+        actual_port,
         uses_https,
-        previous_port
+        previous_port,
     );
-    
+
     // Server information message using new logger
-    app_logger.server_info(SERVER_SIGNATURE, &server_addresses.local, server_addresses.network.as_deref());
-    
+    app_logger.server_info(
+        SERVER_SIGNATURE,
+        &server_addresses.local,
+        server_addresses.network.as_deref(),
+    );
+
     // Copy URL to clipboard if enabled
     if !clipboard_disabled {
-        let server_url = format!("{}://localhost:{}", if uses_https { "https" } else { "http" }, actual_port);
+        let server_url = format!(
+            "{}://localhost:{}",
+            if uses_https { "https" } else { "http" },
+            actual_port
+        );
         if let Err(e) = clipboard_manager.copy_server_url(&server_url) {
             app_logger.warn(&format!("Could not copy to clipboard: {}", e));
         }
     }
-    
+
     if let Some(prev_port) = server_addresses.previous_port {
-        app_logger.warn(&format!("Port {} was already in use, switched to port {}", prev_port, actual_port));
+        app_logger.warn(&format!(
+            "Port {} was already in use, switched to port {}",
+            prev_port, actual_port
+        ));
     }
-    
+
     if test_flag {
         let protocol = if uses_https { "https" } else { "http" };
-        app_logger.info(&format!("Self-test endpoint enabled at {}://localhost:{}/self-test", protocol, actual_port));
+        app_logger.info(&format!(
+            "Self-test endpoint enabled at {}://localhost:{}/self-test",
+            protocol, actual_port
+        ));
     }
-    
+
     // Log compression settings
     if effective_compression_enabled {
         app_logger.info("Compression: enabled");
@@ -647,16 +682,16 @@ async fn main() -> std::io::Result<()> {
         app_logger.info("Compression: disabled (--no-compression flag)");
     }
 
-    // Set up graceful shutdown handling  
+    // Set up graceful shutdown handling
     // Create shutdown manager for future advanced shutdown handling
     let mut _shutdown_manager = shutdown::ShutdownManager::new();
-    
+
     // For now, continue using basic signal handling as integrating full ShutdownManager
     // requires server handle management which is more complex
     if let Err(e) = shutdown::setup_basic_signal_handling().await {
         app_logger.error(&format!("Failed to setup signal handling: {}", e));
     }
-    
+
     // Load TLS configuration if provided
     let rustls_config = if let Some(ref tls_cfg) = tls_config {
         match tls_cfg.load_server_config().await {
@@ -669,7 +704,7 @@ async fn main() -> std::io::Result<()> {
     } else {
         None
     };
-    
+
     let server = HttpServer::new({
         // Clone values that need to be moved into the closure
         let effective_serve_dir = effective_serve_dir.clone();
@@ -679,14 +714,14 @@ async fn main() -> std::io::Result<()> {
         let effective_clean_urls = effective_clean_urls;
         let effective_trailing_slash = effective_trailing_slash;
         let config_rewrites = configuration.rewrites.clone();
-        
+
         move || {
             // Create custom headers middleware
             let headers = DefaultHeaders::new()
                 .add(("X-Server", SERVER_SIGNATURE))
                 .add(("X-Powered-By", PKG_NAME))
                 .add(("X-Version", PKG_VERSION));
-            
+
             // Setup CORS middleware (conditionally configured)
             let cors = if cors_enabled {
                 Cors::default()
@@ -695,35 +730,34 @@ async fn main() -> std::io::Result<()> {
                     .allow_any_method()
                     .supports_credentials()
             } else {
-                Cors::default()
-                    .allow_any_origin() // Still need minimal CORS setup
+                Cors::default().allow_any_origin() // Still need minimal CORS setup
             };
-            
+
             // Build the app with middleware applied in proper order
             // TODO: Implement conditional compression based on effective_compression_enabled flag
-            // For now, compression is always enabled as implementing conditional middleware 
+            // For now, compression is always enabled as implementing conditional middleware
             // requires more complex type handling in actix-web
             let mut app = App::new()
                 .wrap(CustomLogger)
                 .wrap(headers)
                 .wrap(cors)
                 .wrap(Compress::default());
-            
+
             // Register the POST handler FIRST with highest priority
             app = app.service(handle_post);
-                
+
             // Register self-test endpoint if --test flag is provided
             if test_flag {
                 app = app.service(self_test_endpoint);
             }
-            
+
             // Configure static file serving with SPA support
             let serve_path = effective_serve_dir.to_string_lossy().to_string();
             let mut files_service = Files::new("/", serve_path)
                 .index_file("index.html")
                 .use_etag(effective_etag_enabled)
                 .use_last_modified(!effective_etag_enabled);
-                
+
             // Apply symlink handling based on configuration
             if effective_symlinks_enabled {
                 // Enable symlinks with basic validation for dev usage
@@ -752,9 +786,9 @@ async fn main() -> std::io::Result<()> {
                     }
                 });
             }
-            
+
             app = app.service(files_service);
-            
+
             // Add SPA fallback handler if single page app mode is enabled
             if effective_single_page_app {
                 // Create a configurable SPA handler that uses URL processing functions
@@ -763,15 +797,21 @@ async fn main() -> std::io::Result<()> {
                     let clean_urls = effective_clean_urls;
                     let trailing_slash = effective_trailing_slash;
                     let rewrites = config_rewrites.clone();
-                    
+
                     move |req: HttpRequest| {
-                        spa::configurable_spa_handler(req, serve_dir.clone(), clean_urls, trailing_slash, rewrites.clone())
+                        spa::configurable_spa_handler(
+                            req,
+                            serve_dir.clone(),
+                            clean_urls,
+                            trailing_slash,
+                            rewrites.clone(),
+                        )
                     }
                 };
-                
+
                 app = app.default_service(web::route().to(spa_handler));
             }
-            
+
             app
         }
     });

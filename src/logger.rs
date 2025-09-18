@@ -61,7 +61,14 @@ impl Logger {
         println!("{}{} {}", timestamp, level, message);
     }
 
-    pub fn http(&self, ip: &str, method: &str, path: &str, status: Option<u16>, response_time: Option<u128>) {
+    pub fn http(
+        &self,
+        ip: &str,
+        method: &str,
+        path: &str,
+        status: Option<u16>,
+        response_time: Option<u128>,
+    ) {
         if !self.enable_request_logging {
             return;
         }
@@ -69,17 +76,18 @@ impl Logger {
         let timestamp = self.format_timestamp();
         let ip_colored = ip.yellow();
         let request = format!("{} {}", method, path).cyan();
-        
+
         if let (Some(status), Some(time)) = (status, response_time) {
             let status_colored = if status < 400 {
                 format!("{}", status).green()
             } else {
                 format!("{}", status).red()
             };
-            println!("{}{} {} {} - {} in {} ms", 
-                timestamp, 
-                LogLevel::Http, 
-                ip_colored, 
+            println!(
+                "{}{} {} {} - {} in {} ms",
+                timestamp,
+                LogLevel::Http,
+                ip_colored,
                 request,
                 status_colored,
                 time
@@ -102,36 +110,41 @@ impl Logger {
     }
 
     pub fn startup_info(&self, name: &str, version: &str, author: &str) {
-        let startup_msg = format!("Starting {} v{} by {}", name.bold(), version.bold(), author.bold());
+        let startup_msg = format!(
+            "Starting {} v{} by {}",
+            name.bold(),
+            version.bold(),
+            author.bold()
+        );
         self.info(&startup_msg);
     }
 
     pub fn server_info(&self, signature: &str, local_url: &str, network_url: Option<&str>) {
         self.info(&format!("Server: {}", signature.bold()));
-        
-        if std::env::var("NODE_ENV").as_deref() == Ok("production") || !atty::is(atty::Stream::Stdout) {
+
+        if std::env::var("NODE_ENV").as_deref() == Ok("production")
+            || !atty::is(atty::Stream::Stdout)
+        {
             let suffix = format!(" at {}", local_url);
             self.info(&format!("Accepting connections{}", suffix));
         } else {
             // Fancy boxed output
             let mut message = format!("{}", "Serving!".green().bold());
-            
+
             if !local_url.is_empty() {
                 let prefix = if network_url.is_some() { "- " } else { "" };
                 let space = if network_url.is_some() { "    " } else { "  " };
-                message += &format!("\n\n{}{}{}{}",
+                message += &format!(
+                    "\n\n{}{}{}{}",
                     "Local:".bold(),
                     space,
                     prefix,
                     local_url.bright_cyan()
                 );
             }
-            
+
             if let Some(network) = network_url {
-                message += &format!("\n{}  {}",
-                    "- Network:".bold(),
-                    network.bright_cyan()
-                );
+                message += &format!("\n{}  {}", "- Network:".bold(), network.bright_cyan());
             }
 
             self.print_boxed(&message);
@@ -145,19 +158,20 @@ impl Logger {
         }
 
         // Calculate the width needed
-        let max_width = lines.iter()
+        let max_width = lines
+            .iter()
             .map(|line| strip_ansi_codes(line).len())
             .max()
             .unwrap_or(0);
-        
+
         let box_width = max_width + 4; // 2 spaces padding on each side
 
         // Top border
         println!("┌{}┐", "─".repeat(box_width));
-        
+
         // Empty line
         println!("│{}│", " ".repeat(box_width));
-        
+
         // Content lines
         for line in lines {
             let stripped_len = strip_ansi_codes(line).len();
@@ -165,10 +179,10 @@ impl Logger {
             let right_padding = " ".repeat(box_width - stripped_len - padding.len());
             println!("│{}{}{}│", padding, line, right_padding);
         }
-        
+
         // Empty line
         println!("│{}│", " ".repeat(box_width));
-        
+
         // Bottom border
         println!("└{}┘", "─".repeat(box_width));
         println!(); // Extra newline after the box
@@ -196,7 +210,7 @@ fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::new();
     let mut in_escape = false;
     let mut chars = s.chars().peekable();
-    
+
     while let Some(ch) = chars.next() {
         if ch == '\x1b' {
             if chars.peek() == Some(&'[') {
@@ -204,17 +218,17 @@ fn strip_ansi_codes(s: &str) -> String {
                 continue;
             }
         }
-        
+
         if in_escape {
             if ch.is_ascii_alphabetic() {
                 in_escape = false;
             }
             continue;
         }
-        
+
         result.push(ch);
     }
-    
+
     result
 }
 
@@ -226,7 +240,7 @@ pub fn init_logger(enable_request_logging: bool, enable_timestamps: bool) {
     let _ = GLOBAL_LOGGER.set(
         Logger::new()
             .with_request_logging(enable_request_logging)
-            .with_timestamps(enable_timestamps)
+            .with_timestamps(enable_timestamps),
     );
 }
 
@@ -287,7 +301,7 @@ mod tests {
         let logger = Logger::new()
             .with_request_logging(false)
             .with_timestamps(false);
-        
+
         assert!(!logger.enable_request_logging);
         assert!(!logger.enable_timestamps);
     }
@@ -305,7 +319,7 @@ mod tests {
         let colored_text = "Hello".red().to_string();
         let stripped = strip_ansi_codes(&colored_text);
         assert_eq!(stripped, "Hello");
-        
+
         let plain_text = "Plain text";
         let stripped_plain = strip_ansi_codes(plain_text);
         assert_eq!(stripped_plain, "Plain text");
@@ -316,7 +330,7 @@ mod tests {
         let logger = Logger::new().with_timestamps(true);
         let timestamp = logger.format_timestamp();
         assert!(!timestamp.is_empty());
-        
+
         let logger_no_timestamp = Logger::new().with_timestamps(false);
         let no_timestamp = logger_no_timestamp.format_timestamp();
         assert!(no_timestamp.is_empty());
@@ -325,7 +339,7 @@ mod tests {
     #[test]
     fn test_http_logging_with_request_logging_disabled() {
         let logger = Logger::new().with_request_logging(false);
-        
+
         // These should not panic even when request logging is disabled
         logger.http("127.0.0.1", "GET", "/test", None, None);
         logger.http("127.0.0.1", "POST", "/api/users", Some(201), Some(45));
@@ -334,7 +348,7 @@ mod tests {
     #[test]
     fn test_http_logging_status_code_formatting() {
         let logger = Logger::new().with_request_logging(true);
-        
+
         // Test various status codes (these would show in different colors)
         logger.http("192.168.1.1", "GET", "/success", Some(200), Some(10));
         logger.http("192.168.1.1", "GET", "/redirect", Some(301), Some(5));
@@ -347,20 +361,20 @@ mod tests {
         // Test various ANSI codes
         let bold_red = "\x1b[1;31mBold Red\x1b[0m";
         assert_eq!(strip_ansi_codes(bold_red), "Bold Red");
-        
+
         let nested_colors = format!("{}{}Text{}", "Start".red(), "Middle".blue(), "End".green());
         assert_eq!(strip_ansi_codes(&nested_colors), "StartMiddleTextEnd");
-        
+
         let mixed_content = format!("Plain {} {}", "Colored".yellow().bold(), "Text");
         assert_eq!(strip_ansi_codes(&mixed_content), "Plain Colored Text");
-        
+
         // Test malformed escape sequences
         let malformed = "\x1b[Xmalformed\x1bnocode";
         assert_eq!(strip_ansi_codes(malformed), "malformed\x1bnocode");
-        
+
         // Empty string
         assert_eq!(strip_ansi_codes(""), "");
-        
+
         // Only ANSI codes
         let only_codes = format!("{}", "".red().bold());
         assert_eq!(strip_ansi_codes(&only_codes), "");
@@ -369,57 +383,66 @@ mod tests {
     #[test]
     fn test_startup_info_formatting() {
         let logger = Logger::new();
-        
+
         // This should not panic
         logger.startup_info("TestApp", "1.0.0", "Test Author");
         logger.startup_info("", "", ""); // Edge case with empty strings
-        logger.startup_info("App-With-Dashes", "1.0.0-beta", "Author <email@example.com>");
+        logger.startup_info(
+            "App-With-Dashes",
+            "1.0.0-beta",
+            "Author <email@example.com>",
+        );
     }
 
     #[test]
     fn test_server_info_formatting() {
         let logger = Logger::new();
-        
+
         // Test with both local and network URLs
         logger.server_info(
-            "TestServer/1.0", 
-            "http://localhost:3000", 
-            Some("http://192.168.1.100:3000")
+            "TestServer/1.0",
+            "http://localhost:3000",
+            Some("http://192.168.1.100:3000"),
         );
-        
+
         // Test with only local URL
         logger.server_info("TestServer/1.0", "http://localhost:3000", None);
-        
+
         // Test with empty URLs
         logger.server_info("TestServer/1.0", "", None);
-        logger.server_info("", "http://localhost:3000", Some("http://192.168.1.100:3000"));
+        logger.server_info(
+            "",
+            "http://localhost:3000",
+            Some("http://192.168.1.100:3000"),
+        );
     }
 
     #[test]
     fn test_boxed_output_edge_cases() {
         let logger = Logger::new();
-        
+
         // Empty message
         logger.print_boxed("");
-        
+
         // Single line
         logger.print_boxed("Single line message");
-        
+
         // Multiple lines with different lengths
         logger.print_boxed("Short\nThis is a much longer line\nMed");
-        
+
         // Lines with ANSI codes
-        let colored_message = format!("{}\n{}\n{}", 
-            "Red line".red(), 
-            "Green line".green(), 
+        let colored_message = format!(
+            "{}\n{}\n{}",
+            "Red line".red(),
+            "Green line".green(),
             "Blue line".blue()
         );
         logger.print_boxed(&colored_message);
-        
+
         // Very long line
         let long_message = "A".repeat(100);
         logger.print_boxed(&long_message);
-        
+
         // Unicode characters
         logger.print_boxed("Unicode: 🚀 📦 ✅\nCafé résumé naïve\n测试内容");
     }
@@ -427,7 +450,7 @@ mod tests {
     #[test]
     fn test_shutdown_messages() {
         let logger = Logger::new();
-        
+
         // These should not panic
         logger.shutdown_message();
         logger.force_shutdown_message();
@@ -436,20 +459,20 @@ mod tests {
     #[test]
     fn test_logger_methods_with_special_characters() {
         let logger = Logger::new();
-        
+
         // Test with various special characters
         logger.info("Info with unicode: 🔥 💯 ⚡");
         logger.warn("Warning with symbols: !@#$%^&*()");
         logger.error("Error with quotes: \"quoted\" and 'single'");
-        
+
         // Test with newlines and tabs
         logger.info("Multi\nline\tmessage");
         logger.warn("Tabs:\t\tand\tspaces");
-        
+
         // Test with very long messages
         let long_message = "A".repeat(1000);
         logger.error(&long_message);
-        
+
         // Empty messages
         logger.info("");
         logger.warn("");
@@ -462,7 +485,7 @@ mod tests {
         let default_logger = get_logger();
         assert!(default_logger.enable_request_logging);
         assert!(default_logger.enable_timestamps);
-        
+
         // Note: We can't easily test init_logger here because it uses OnceLock
         // which can only be set once per process, and other tests might have already set it
     }
@@ -471,15 +494,18 @@ mod tests {
     fn test_logger_default_implementation() {
         let logger1 = Logger::default();
         let logger2 = Logger::new();
-        
-        assert_eq!(logger1.enable_request_logging, logger2.enable_request_logging);
+
+        assert_eq!(
+            logger1.enable_request_logging,
+            logger2.enable_request_logging
+        );
         assert_eq!(logger1.enable_timestamps, logger2.enable_timestamps);
     }
 
     #[test]
     fn test_http_logging_without_status_and_time() {
         let logger = Logger::new().with_request_logging(true);
-        
+
         // Test HTTP logging with missing status/time information
         logger.http("127.0.0.1", "GET", "/incomplete", None, None);
         logger.http("10.0.0.1", "POST", "/partial", Some(200), None);
@@ -489,42 +515,48 @@ mod tests {
     #[test]
     fn test_box_width_calculation() {
         let logger = Logger::new();
-        
+
         // Test that box width is calculated correctly for various content
         // (Visual inspection would be needed to verify actual output)
-        
+
         // ASCII art
         logger.print_boxed("  /\\_/\\\n ( o.o )\n  > ^ <");
-        
+
         // Mixed width content
         logger.print_boxed("Short\nMedium length\nVery very very long line\nS");
-        
+
         // Only spaces
         logger.print_boxed("   \n     \n ");
-        
+
         // Tab characters
         logger.print_boxed("Line\twith\ttabs");
     }
 
     #[test]
     fn test_concurrent_logging() {
-        use std::thread;
         use std::sync::Arc;
-        
+        use std::thread;
+
         let logger = Arc::new(Logger::new());
         let mut handles = vec![];
-        
+
         // Spawn multiple threads that log concurrently
         for i in 0..5 {
             let logger_clone = Arc::clone(&logger);
             let handle = thread::spawn(move || {
                 logger_clone.info(&format!("Thread {} logging", i));
-                logger_clone.http("127.0.0.1", "GET", &format!("/thread-{}", i), Some(200), Some(10));
+                logger_clone.http(
+                    "127.0.0.1",
+                    "GET",
+                    &format!("/thread-{}", i),
+                    Some(200),
+                    Some(10),
+                );
                 logger_clone.warn(&format!("Thread {} warning", i));
             });
             handles.push(handle);
         }
-        
+
         // Wait for all threads to complete
         for handle in handles {
             handle.join().unwrap();
@@ -537,11 +569,11 @@ mod tests {
         let http_str1 = format!("{}", LogLevel::Http);
         let http_str2 = format!("{}", LogLevel::Http);
         assert_eq!(http_str1, http_str2);
-        
+
         let info_str1 = format!("{}", LogLevel::Info);
         let info_str2 = format!("{}", LogLevel::Info);
         assert_eq!(info_str1, info_str2);
-        
+
         // All log levels should contain their name
         assert!(format!("{}", LogLevel::Http).contains("HTTP"));
         assert!(format!("{}", LogLevel::Info).contains("INFO"));

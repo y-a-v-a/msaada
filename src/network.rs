@@ -43,17 +43,17 @@ impl NetworkUtils {
 
     /// Create server addresses for display
     pub fn create_server_addresses(
-        host: &str, 
-        port: u16, 
-        use_https: bool, 
-        previous_port: Option<u16>
+        host: &str,
+        port: u16,
+        use_https: bool,
+        previous_port: Option<u16>,
     ) -> ServerAddresses {
         let protocol = if use_https { "https" } else { "http" };
-        
+
         // Handle special cases for host names
         let display_host = match host {
             "0.0.0.0" => "localhost",
-            "::" => "localhost", 
+            "::" => "localhost",
             _ => host,
         };
 
@@ -78,9 +78,9 @@ impl NetworkUtils {
 
     /// Check port and auto-switch if needed
     pub fn resolve_port(
-        host: &str, 
-        requested_port: u16, 
-        allow_port_switching: bool
+        host: &str,
+        requested_port: u16,
+        allow_port_switching: bool,
     ) -> Result<u16, String> {
         if Self::is_port_available(host, requested_port) {
             return Ok(requested_port);
@@ -98,7 +98,9 @@ impl NetworkUtils {
             Some(available_port) => Ok(available_port),
             None => Err(format!(
                 "Port {} is occupied and no alternative ports are available in the range {}{}.",
-                requested_port, requested_port + 1, requested_port + 100
+                requested_port,
+                requested_port + 1,
+                requested_port + 100
             )),
         }
     }
@@ -130,7 +132,7 @@ mod tests {
         // This should find an available port
         let available = NetworkUtils::find_available_port("127.0.0.1", 40000);
         assert!(available.is_some());
-        
+
         let port = available.unwrap();
         assert!(port >= 40000);
         assert!(port < 40100);
@@ -138,33 +140,21 @@ mod tests {
 
     #[test]
     fn test_create_server_addresses() {
-        let addresses = NetworkUtils::create_server_addresses(
-            "0.0.0.0",
-            3000,
-            false,
-            Some(8080)
-        );
+        let addresses = NetworkUtils::create_server_addresses("0.0.0.0", 3000, false, Some(8080));
 
         assert_eq!(addresses.local, "http://localhost:3000");
         assert_eq!(addresses.previous_port, Some(8080));
-        let expected_network = NetworkUtils::get_network_address().map(|ip| {
-            match ip {
-                IpAddr::V6(v6) => format!("http://[{}]:3000", v6),
-                IpAddr::V4(v4) => format!("http://{}:3000", v4),
-            }
+        let expected_network = NetworkUtils::get_network_address().map(|ip| match ip {
+            IpAddr::V6(v6) => format!("http://[{}]:3000", v6),
+            IpAddr::V4(v4) => format!("http://{}:3000", v4),
         });
         assert_eq!(addresses.network, expected_network);
     }
 
     #[test]
     fn test_create_server_addresses_https() {
-        let addresses = NetworkUtils::create_server_addresses(
-            "127.0.0.1", 
-            8443, 
-            true, 
-            None
-        );
-        
+        let addresses = NetworkUtils::create_server_addresses("127.0.0.1", 8443, true, None);
+
         assert_eq!(addresses.local, "https://127.0.0.1:8443");
         assert_eq!(addresses.previous_port, None);
     }
@@ -198,23 +188,18 @@ mod tests {
 
         let result = NetworkUtils::resolve_port("127.0.0.1", bound_port, true);
         assert!(result.is_ok());
-        
+
         let new_port = result.unwrap();
         assert!(new_port > bound_port);
     }
 
     #[test]
     fn test_create_server_addresses_ipv6() {
-        let addresses = NetworkUtils::create_server_addresses(
-            "::", 
-            8080, 
-            true, 
-            None
-        );
-        
+        let addresses = NetworkUtils::create_server_addresses("::", 8080, true, None);
+
         assert_eq!(addresses.local, "https://localhost:8080");
         assert_eq!(addresses.previous_port, None);
-        
+
         // Network address should exist and handle IPv6 formatting
         if let Some(network) = &addresses.network {
             // Should contain brackets if IPv6
@@ -224,13 +209,8 @@ mod tests {
 
     #[test]
     fn test_create_server_addresses_with_previous_port() {
-        let addresses = NetworkUtils::create_server_addresses(
-            "0.0.0.0", 
-            3001, 
-            false, 
-            Some(3000)
-        );
-        
+        let addresses = NetworkUtils::create_server_addresses("0.0.0.0", 3001, false, Some(3000));
+
         assert_eq!(addresses.local, "http://localhost:3001");
         assert_eq!(addresses.previous_port, Some(3000));
     }
@@ -244,7 +224,7 @@ mod tests {
             Ok(port) => assert_eq!(port, 65535),
             Err(_) => {} // Acceptable if port is not available
         }
-        
+
         // Test with port 1 (privileged)
         let result = NetworkUtils::resolve_port("127.0.0.1", 1, false);
         // Will likely fail due to permissions, but should not panic
@@ -254,29 +234,29 @@ mod tests {
         }
     }
 
-    #[test] 
+    #[test]
     fn test_port_range_exhaustion() {
         // Create a scenario where many ports are bound
         let mut listeners = Vec::new();
         let start_port = 45000;
-        
+
         // Bind several consecutive ports
         for i in 0..5 {
             if let Ok(listener) = TcpListener::bind(format!("127.0.0.1:{}", start_port + i)) {
                 listeners.push(listener);
             }
         }
-        
+
         // Try to find available port in a small range
         let available = NetworkUtils::find_available_port("127.0.0.1", start_port);
-        
+
         if available.is_some() {
             let port = available.unwrap();
             // Should find a port outside the bound range
             assert!(port >= start_port);
             assert!(port < start_port + 100);
         }
-        
+
         drop(listeners); // Clean up
     }
 
@@ -284,15 +264,15 @@ mod tests {
     fn test_is_port_available_different_hosts() {
         // Test localhost variants
         let high_port = 58001; // Use high port likely to be available
-        
+
         // These should all refer to the same interface in most cases
         let localhost_available = NetworkUtils::is_port_available("localhost", high_port);
         let ip_available = NetworkUtils::is_port_available("127.0.0.1", high_port);
         let wildcard_available = NetworkUtils::is_port_available("0.0.0.0", high_port);
-        
+
         // Results should be consistent for localhost references
         assert_eq!(localhost_available, ip_available);
-        
+
         // Note: 0.0.0.0 might behave differently depending on system configuration
         // so we just verify it doesn't panic
         let _ = wildcard_available;
@@ -308,12 +288,12 @@ mod tests {
                         // Should not be the loopback address for "network" address
                         // but might be in some test environments
                         assert!(!v4.to_string().is_empty());
-                    },
+                    }
                     std::net::IpAddr::V6(v6) => {
                         assert!(!v6.to_string().is_empty());
                     }
                 }
-            },
+            }
             None => {
                 // Acceptable in environments without network interfaces
                 println!("No network address available (expected in some test environments)");
@@ -325,14 +305,14 @@ mod tests {
     fn test_server_addresses_protocol_consistency() {
         let http_addresses = NetworkUtils::create_server_addresses("localhost", 8000, false, None);
         let https_addresses = NetworkUtils::create_server_addresses("localhost", 8000, true, None);
-        
+
         assert!(http_addresses.local.starts_with("http://"));
         assert!(https_addresses.local.starts_with("https://"));
-        
+
         if let Some(network_http) = &http_addresses.network {
             assert!(network_http.starts_with("http://"));
         }
-        
+
         if let Some(network_https) = &https_addresses.network {
             assert!(network_https.starts_with("https://"));
         }
@@ -347,7 +327,7 @@ mod tests {
 
         let result = NetworkUtils::resolve_port("127.0.0.1", bound_port, false);
         assert!(result.is_err());
-        
+
         let error_msg = result.unwrap_err();
         assert!(error_msg.contains("already in use"));
         assert!(error_msg.contains("--no-port-switching"));
@@ -359,7 +339,7 @@ mod tests {
         // Test that find_available_port respects the 100-port limit
         let start_port = 50000;
         let result = NetworkUtils::find_available_port("127.0.0.1", start_port);
-        
+
         if let Some(port) = result {
             assert!(port >= start_port);
             assert!(port < start_port + 100);
