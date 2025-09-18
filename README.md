@@ -17,7 +17,7 @@ A powerful, lightweight HTTP server for local web development. Easily serve stat
 - 🌐 **CORS Support**: Enable cross-origin requests for API development
 - 📦 **Gzip Compression**: Automatic response compression for faster transfers
 - 🚦 **Smart Port Management**: Automatic port switching when ports are occupied
-- 📋 **Clipboard Integration**: Automatically copy server URL to clipboard
+- 📋 **Clipboard Integration**: Automatically copy server URL using system clipboard commands (wl-copy/xclip/xsel on Linux, pbcopy on macOS, clip on Windows)
 - 🏃 **SPA Support**: Single Page Application routing with --single flag
 - ⚡ **ETag/Caching**: Smart caching with ETag and Last-Modified headers
 - 🔗 **Symlinks Support**: Follow symbolic links in your file system
@@ -107,7 +107,7 @@ msaada --port 3000 --dir ./src \
 ### Development Options
 
 - `--no-request-logging` - Disable request logging to console
-- `--no-clipboard` - Don't copy server URL to clipboard
+- `--no-clipboard` - Don't copy server URL to clipboard (feature requires OS clipboard commands)
 - `--no-port-switching` - Don't switch ports when specified port is taken
 
 ## Configuration Files
