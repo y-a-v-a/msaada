@@ -21,7 +21,6 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -597,21 +596,10 @@ async fn main() -> std::io::Result<()> {
             app_logger.info("All basic web files already exist. No files created.");
         }
     } else {
-        // Without --init flag, only check if index.html exists and prompt if missing
+        // Without --init flag, only check if index.html exists and warn if missing
         if !index_path.exists() {
-            app_logger.info(&format!("index.html not found in {}.", dir_arg));
-            app_logger.info("Would you like to create a basic index.html file? (y/n)");
-            
-            let mut response = String::new();
-            io::stdin().read_line(&mut response)?;
-            
-            if response.trim().to_lowercase() == "y" {
-                fs::write(&index_path, HTML_TEMPLATE)?;
-                app_logger.info("Created index.html file.");
-                app_logger.info("Tip: Use --init flag to also create style.css and main.js files.");
-            } else {
-                app_logger.warn("Note: The server will run but may not serve a default page.");
-            }
+            app_logger.warn(&format!("index.html not found in {}. The server will run but may not serve a default page.", dir_arg));
+            app_logger.info("Tip: Use --init flag to create basic web files (index.html, style.css, main.js).");
         }
     }
 
@@ -736,9 +724,33 @@ async fn main() -> std::io::Result<()> {
                 .use_etag(effective_etag_enabled)
                 .use_last_modified(!effective_etag_enabled);
                 
-            // Apply advanced web features based on effective configuration
+            // Apply symlink handling based on configuration
             if effective_symlinks_enabled {
-                files_service = files_service.use_hidden_files();
+                // Enable symlinks with basic validation for dev usage
+                files_service = files_service.path_filter({
+                    move |path, _req| {
+                        // For dev servers, we just need basic symlink resolution
+                        // Block obvious directory traversal attempts but don't over-engineer
+                        if path.to_string_lossy().contains("..") {
+                            return false; // Block obvious traversal attempts
+                        }
+
+                        // Allow symlinks and let the filesystem handle the rest
+                        true
+                    }
+                });
+            } else {
+                // Default: Block symlinks for consistency with other dev servers
+                files_service = files_service.path_filter({
+                    let serve_dir = effective_serve_dir.clone();
+                    move |path, _req| {
+                        let full_path = serve_dir.join(path);
+                        match full_path.symlink_metadata() {
+                            Ok(metadata) => !metadata.file_type().is_symlink(),
+                            Err(_) => true, // Allow if we can't check - let actix handle it
+                        }
+                    }
+                });
             }
             
             app = app.service(files_service);

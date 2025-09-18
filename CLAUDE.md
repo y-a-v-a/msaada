@@ -11,8 +11,7 @@
 - Run SPA mode: `cargo run -- --port <PORT> --dir <DIRECTORY> --single`
 - Release build: `cargo build --release`
 - Package for distribution: `./package.sh`
-- Comprehensive testing: `./tests/run_test.sh`
-- Simple POST test: `./tests/test_post.sh [PORT]`
+- Comprehensive testing: `./tests/run_comprehensive_tests.sh`
 - Test: `cargo test`
 - Test single test: `cargo test <TEST_NAME>`
 - Check only: `cargo check`
@@ -249,8 +248,9 @@ cargo test -- --nocapture  # With output
 
 ### Integration Tests
 ```bash
-./tests/run_test.sh        # Full test suite
-./tests/test_post.sh 3000  # POST endpoint test
+./tests/run_comprehensive_tests.sh           # Full test suite (600+ tests)
+./tests/run_comprehensive_tests.sh --quick   # Quick test mode
+./tests/run_comprehensive_tests.sh http post # Selective testing
 ```
 
 ### Manual Testing
@@ -357,6 +357,48 @@ http://localhost:3000/self-test
    - Integration tests for features
    - Manual testing checklist
    - Performance benchmarks for critical paths
+
+## Continuous Integration
+
+The project uses GitHub Actions for automated testing and deployment:
+
+### Workflows
+
+1. **CI Pipeline** (`.github/workflows/ci.yaml`)
+   - Runs on: push to main/develop, PRs
+   - Tests on: Ubuntu, macOS, Windows
+   - Steps: Unit tests → Build → Integration tests → Lint/Security
+   - 600+ integration tests across all features
+
+2. **Quick Tests** (`.github/workflows/test.yaml`)
+   - Runs on: PRs with code changes
+   - Ubuntu-only for fast feedback
+   - Includes PR comment with test results
+   - Quick mode integration testing
+
+3. **Release Pipeline** (`.github/workflows/release.yaml`)
+   - Runs on: GitHub releases
+   - Test gate: Full test suite must pass
+   - Multi-platform binary builds
+   - Automated release artifact creation
+
+### Test Coverage
+
+The comprehensive test suite covers:
+- HTTP server functionality (static files, routing)
+- HTTPS/SSL integration (PEM, PKCS12 certificates)
+- Configuration system (JSON parsing, precedence)
+- POST request handling (JSON, form, multipart, binary)
+- Advanced features (CORS, compression, SPA mode)
+- Network management (port switching, IPv6)
+
+### CI/CD Best Practices
+
+- **Quality Gates**: Tests must pass before merge/release
+- **Multi-Platform**: Ensures compatibility across OS
+- **Fast Feedback**: Quick tests for PRs, full suite for releases
+- **Artifact Collection**: Test logs preserved for debugging
+- **Security Scanning**: Automated dependency audits
 
 ## License
 

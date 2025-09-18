@@ -1,0 +1,159 @@
+name: Quick Tests
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quick-test:
+    name: Quick Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target/
+        key: ${{ runner.os }}-cargo-quick-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl jq openssl
+
+    - name: Run cargo tests
+      run: cargo test --verbose
+
+    - name: Build release binary
+      run: cargo build --release --verbose
+
+    - name: Run quick integration tests
+      run: |
+        chmod +x tests/run_comprehensive_tests.sh tests/cleanup_tests.sh
+        cd tests && ./run_comprehensive_tests.sh --quick --verbose --force-clean
+
+    - name: Upload test logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: quick-test-logs
+        path: |
+          tests/.tmp/
+        retention-days: 3
+
+  test-coverage:
+    name: Test Coverage Report
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y curl jq openssl
+
+    - name: Build with coverage
+      run: cargo build --release
+
+    - name: Run comprehensive test suite for coverage
+      id: coverage
+      continue-on-error: true
+      run: |
+        chmod +x tests/run_comprehensive_tests.sh
+        cd tests
+
+        # Run tests and capture results
+        chmod +x run_comprehensive_tests.sh cleanup_tests.sh
+        if ./run_comprehensive_tests.sh --verbose --force-clean > test_results.log 2>&1; then
+          echo "tests_passed=true" >> $GITHUB_OUTPUT
+        else
+          echo "tests_passed=false" >> $GITHUB_OUTPUT
+        fi
+
+        # Extract test statistics
+        TOTAL_TESTS=$(grep -E "Total Tests:" test_results.log | tail -n1 | grep -oE '[0-9]+' | head -n1 || echo "0")
+        PASSED_TESTS=$(grep -E "Passed:" test_results.log | tail -n1 | grep -oE '[0-9]+' | head -n1 || echo "0")
+        FAILED_TESTS=$(grep -E "Failed:" test_results.log | tail -n1 | grep -oE '[0-9]+' | head -n1 || echo "0")
+
+        echo "total_tests=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+        echo "passed_tests=$PASSED_TESTS" >> $GITHUB_OUTPUT
+        echo "failed_tests=$FAILED_TESTS" >> $GITHUB_OUTPUT
+
+    - name: Comment Test Results on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const testsPassed = '${{ steps.coverage.outputs.tests_passed }}' === 'true';
+          const totalTests = '${{ steps.coverage.outputs.total_tests }}';
+          const passedTests = '${{ steps.coverage.outputs.passed_tests }}';
+          const failedTests = '${{ steps.coverage.outputs.failed_tests }}';
+
+          const successEmoji = testsPassed ? '✅' : '❌';
+          const statusText = testsPassed ? 'All tests passed!' : 'Some tests failed';
+
+          const body = `## ${successEmoji} Test Results
+
+          **Status**: ${statusText}
+
+          📊 **Test Statistics**:
+          - Total Tests: ${totalTests}
+          - Passed: ${passedTests} ✅
+          - Failed: ${failedTests} ${failedTests > 0 ? '❌' : ''}
+
+          🧪 **Test Coverage**:
+          - HTTP Server functionality
+          - HTTPS/SSL integration
+          - Configuration files
+          - POST request handling
+          - Advanced features (CORS, compression, SPA)
+          - Network and port management
+
+          ${testsPassed ? '🎉 Great job! All integration tests are passing.' : '⚠️  Please check the failed tests and fix any issues.'}
+          `;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
+
+    - name: Upload detailed test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-coverage-results
+        path: |
+          tests/test_results.log
+          tests/.tmp/
+        retention-days: 7

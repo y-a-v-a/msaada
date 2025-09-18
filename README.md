@@ -2,6 +2,10 @@
 
 > "Msaada" is Swahili for "service/servant"
 
+[![CI](https://github.com/y-a-v-a/msaada/actions/workflows/ci.yaml/badge.svg)](https://github.com/y-a-v-a/msaada/actions/workflows/ci.yaml)
+[![Tests](https://github.com/y-a-v-a/msaada/actions/workflows/test.yaml/badge.svg)](https://github.com/y-a-v-a/msaada/actions/workflows/test.yaml)
+[![Release](https://github.com/y-a-v-a/msaada/actions/workflows/release.yaml/badge.svg)](https://github.com/y-a-v-a/msaada/actions/workflows/release.yaml)
+
 A powerful, lightweight HTTP server for local web development. Easily serve static files from any directory with advanced features like HTTPS support, SPA routing, and automatic configuration.
 
 ## Features

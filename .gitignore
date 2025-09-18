@@ -1,3 +1,6 @@
 /target
 /dist
 tasks.md
+tests/test_server/msaada_test.log
+.DS_Store
+tests/.tmp
