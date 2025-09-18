@@ -139,16 +139,21 @@ mod tests {
     #[test]
     fn test_create_server_addresses() {
         let addresses = NetworkUtils::create_server_addresses(
-            "0.0.0.0", 
-            3000, 
-            false, 
+            "0.0.0.0",
+            3000,
+            false,
             Some(8080)
         );
-        
+
         assert_eq!(addresses.local, "http://localhost:3000");
         assert_eq!(addresses.previous_port, Some(8080));
-        // Network address depends on system, so we just check it exists
-        assert!(addresses.network.is_some());
+        let expected_network = NetworkUtils::get_network_address().map(|ip| {
+            match ip {
+                IpAddr::V6(v6) => format!("http://[{}]:3000", v6),
+                IpAddr::V4(v4) => format!("http://{}:3000", v4),
+            }
+        });
+        assert_eq!(addresses.network, expected_network);
     }
 
     #[test]
