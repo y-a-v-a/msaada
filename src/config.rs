@@ -301,9 +301,9 @@ mod tests {
     #[test]
     fn test_default_configuration() {
         let config = Configuration::default();
-        assert_eq!(config.clean_urls, false);
-        assert_eq!(config.directory_listing, true);
-        assert_eq!(config.etag, true);
+        assert!(!config.clean_urls);
+        assert!(config.directory_listing);
+        assert!(config.etag);
         assert_eq!(config.rewrites.len(), 0);
     }
 
@@ -330,7 +330,7 @@ mod tests {
         let config = loader.load_configuration(None).unwrap();
 
         assert!(config.public.is_some());
-        assert_eq!(config.clean_urls, true);
+        assert!(config.clean_urls);
         assert_eq!(config.rewrites.len(), 1);
         assert_eq!(config.rewrites[0].source, "**");
     }
@@ -344,8 +344,8 @@ mod tests {
         let config = loader.load_configuration(None).unwrap();
 
         // Should load default configuration
-        assert_eq!(config.clean_urls, false);
-        assert_eq!(config.directory_listing, true);
+        assert!(!config.clean_urls);
+        assert!(config.directory_listing);
     }
 
     #[test]
@@ -401,8 +401,8 @@ mod tests {
         let config = loader.load_configuration(None).unwrap();
 
         // serve.json should take precedence
-        assert_eq!(config.clean_urls, true);
-        assert_eq!(config.etag, false);
+        assert!(config.clean_urls);
+        assert!(!config.etag);
     }
 
     #[test]
@@ -428,7 +428,7 @@ mod tests {
         let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
-        assert_eq!(config.clean_urls, true);
+        assert!(config.clean_urls);
         assert!(config.public.is_some());
     }
 
@@ -456,8 +456,8 @@ mod tests {
         let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
-        assert_eq!(config.render_single, true);
-        assert_eq!(config.symlinks, true);
+        assert!(config.render_single);
+        assert!(config.symlinks);
         assert!(config.public.is_some());
     }
 
@@ -591,12 +591,12 @@ mod tests {
 
         // Verify all options are loaded correctly
         assert!(config.public.is_some());
-        assert_eq!(config.clean_urls, true);
-        assert_eq!(config.trailing_slash, true);
-        assert_eq!(config.render_single, true);
-        assert_eq!(config.symlinks, true);
-        assert_eq!(config.etag, false);
-        assert_eq!(config.directory_listing, false);
+        assert!(config.clean_urls);
+        assert!(config.trailing_slash);
+        assert!(config.render_single);
+        assert!(config.symlinks);
+        assert!(!config.etag);
+        assert!(!config.directory_listing);
         assert_eq!(config.rewrites.len(), 2);
         assert_eq!(config.redirects.len(), 2);
         assert_eq!(config.headers.len(), 1);
@@ -626,7 +626,7 @@ mod tests {
         let config = loader.load_configuration(None).unwrap();
 
         // Should fall back to default configuration
-        assert_eq!(config.clean_urls, false); // Default value
+        assert!(!config.clean_urls); // Default value
     }
 
     #[test]

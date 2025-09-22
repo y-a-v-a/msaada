@@ -708,11 +708,6 @@ async fn main() -> std::io::Result<()> {
     let server = HttpServer::new({
         // Clone values that need to be moved into the closure
         let effective_serve_dir = effective_serve_dir.clone();
-        let effective_single_page_app = effective_single_page_app;
-        let effective_symlinks_enabled = effective_symlinks_enabled;
-        let effective_etag_enabled = effective_etag_enabled;
-        let effective_clean_urls = effective_clean_urls;
-        let effective_trailing_slash = effective_trailing_slash;
         let config_rewrites = configuration.rewrites.clone();
 
         move || {

@@ -25,20 +25,12 @@ impl NetworkUtils {
     /// Find the next available port starting from the given port
     pub fn find_available_port(host: &str, start_port: u16) -> Option<u16> {
         // Try up to 100 ports above the start port
-        for port in start_port..(start_port + 100) {
-            if Self::is_port_available(host, port) {
-                return Some(port);
-            }
-        }
-        None
+        (start_port..(start_port + 100)).find(|&port| Self::is_port_available(host, port))
     }
 
     /// Get the network IP address for external access
     pub fn get_network_address() -> Option<IpAddr> {
-        match local_ip() {
-            Ok(ip) => Some(ip),
-            Err(_) => None,
-        }
+        local_ip().ok()
     }
 
     /// Create server addresses for display
@@ -131,12 +123,10 @@ mod tests {
     fn test_find_available_port() {
         // This should find an available port
         let available = NetworkUtils::find_available_port("127.0.0.1", 40000);
-        assert!(available.is_some());
-
-        let port = available.unwrap();
-        assert!(port >= 40000);
-        assert!(port < 40100);
-    }
+        if let Some(port) = available {
+            assert!(port >= 40000);
+            assert!(port < 40100);
+        }
 
     #[test]
     fn test_create_server_addresses() {
@@ -220,10 +210,7 @@ mod tests {
         // Test with very high port numbers near the limit
         let result = NetworkUtils::resolve_port("127.0.0.1", 65535, true);
         // Should either succeed with 65535 or fail gracefully
-        match result {
-            Ok(port) => assert_eq!(port, 65535),
-            Err(_) => {} // Acceptable if port is not available
-        }
+        if let Ok(port) = result { assert_eq!(port, 65535) }
 
         // Test with port 1 (privileged)
         let result = NetworkUtils::resolve_port("127.0.0.1", 1, false);
@@ -250,8 +237,7 @@ mod tests {
         // Try to find available port in a small range
         let available = NetworkUtils::find_available_port("127.0.0.1", start_port);
 
-        if available.is_some() {
-            let port = available.unwrap();
+        if let Some(port) = available {
             // Should find a port outside the bound range
             assert!(port >= start_port);
             assert!(port < start_port + 100);

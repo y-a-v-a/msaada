@@ -212,12 +212,11 @@ fn strip_ansi_codes(s: &str) -> String {
     let mut chars = s.chars().peekable();
 
     while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            if chars.peek() == Some(&'[') {
+        if ch == '\x1b'
+            && chars.peek() == Some(&'[') {
                 in_escape = true;
                 continue;
             }
-        }
 
         if in_escape {
             if ch.is_ascii_alphabetic() {

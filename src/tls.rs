@@ -209,7 +209,7 @@ impl TlsConfig {
 
         let cert_chain: Vec<Certificate> = cert_ders
             .into_iter()
-            .map(|cert_der| Certificate(cert_der))
+            .map(Certificate)
             .collect();
 
         // Extract private keys
