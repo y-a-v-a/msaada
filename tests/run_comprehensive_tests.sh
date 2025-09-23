@@ -45,8 +45,12 @@ FORCE_CLEAN=false
 show_help() {
     cat << EOF
 Usage: $0 [OPTIONS] [SUITE_NAMES...]
+       $0 cleanup
 
 Comprehensive test runner for msaada HTTP server functionality.
+
+COMMANDS:
+    cleanup                 Run cleanup only and exit
 
 OPTIONS:
     -h, --help              Show this help message
@@ -56,7 +60,7 @@ OPTIONS:
     -s, --selective SUITES List of specific suites to run (comma-separated)
     --dry-run              Show what would be executed without running tests
     --stop-on-failure      Stop execution on first suite failure
-    --list-suites          List all available test suites
+    --list, --list-suites  List all available test suites
     --clean                Force cleanup before starting tests
     --no-clean             Skip automatic cleanup (not recommended)
     --force-clean          Force cleanup without confirmation prompts
@@ -137,7 +141,7 @@ parse_arguments() {
                 CONTINUE_ON_FAILURE=false
                 shift
                 ;;
-            --list-suites)
+            --list-suites|--list)
                 list_suites
                 exit 0
                 ;;
@@ -162,6 +166,22 @@ parse_arguments() {
                     SELECTIVE_SUITES="$1"
                 fi
                 shift
+                ;;
+            cleanup)
+                # Special command to just run cleanup and exit
+                print_header "msaada Test Cleanup"
+                local cleanup_script="$SCRIPT_DIR/cleanup_tests.sh"
+                if [[ -f "$cleanup_script" ]]; then
+                    print_info "Running test cleanup..."
+                    "$cleanup_script" --verbose --force
+                    print_success "Test cleanup completed"
+                else
+                    print_warning "Cleanup script not found, running basic cleanup"
+                    source "$SCRIPT_DIR/test_utils.sh"
+                    cleanup_test_environment true
+                    print_success "Basic cleanup completed"
+                fi
+                exit 0
                 ;;
             *)
                 echo "Unknown option: $1" >&2
@@ -209,6 +229,20 @@ init_test_runner() {
         fi
         echo
     fi
+
+    # Run Rust unit tests first
+    print_subheader "Running Rust Unit Tests"
+    print_info "Executing cargo test --verbose..."
+    if ! cargo test --verbose; then
+        print_error "Rust unit tests failed"
+        if [[ "$CONTINUE_ON_FAILURE" != "true" ]]; then
+            return 1
+        fi
+        print_warning "Continuing despite unit test failures"
+    else
+        print_success "All Rust unit tests passed"
+    fi
+    echo
 
     echo -e "Test Configuration:"
     echo -e "  Working Directory: ${CYAN}$SCRIPT_DIR${NC}"
@@ -520,15 +554,15 @@ cleanup_test_runner() {
 
 # Main execution function
 main() {
-    # Set up trap for cleanup
-    trap cleanup_test_runner EXIT
-    
-    # Parse command line arguments
+    # Parse command line arguments first
     parse_arguments "$@"
     
     # Initialize test runner
     init_test_runner
-    
+
+    # Set up cleanup trap now that we're actually going to run tests
+    trap cleanup_test_runner EXIT
+
     # Execute tests based on configuration
     local execution_result
     if [[ "$RUN_PARALLEL" == "true" ]]; then
