@@ -207,10 +207,7 @@ impl TlsConfig {
             ));
         }
 
-        let cert_chain: Vec<Certificate> = cert_ders
-            .into_iter()
-            .map(Certificate)
-            .collect();
+        let cert_chain: Vec<Certificate> = cert_ders.into_iter().map(Certificate).collect();
 
         // Extract private keys
         let key_ders = pfx
