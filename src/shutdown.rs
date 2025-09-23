@@ -36,7 +36,7 @@ impl ShutdownManager {
         }
 
         // Set up signal handling for SIGINT and SIGTERM
-        let signals = Signals::new(&[SIGINT, signal_hook::consts::SIGTERM])?;
+        let signals = Signals::new([SIGINT, signal_hook::consts::SIGTERM])?;
         let signal_handle = signals.handle();
         self.signal_handle = Some(signal_handle);
 
@@ -65,10 +65,16 @@ impl ShutdownManager {
                             logger.shutdown_message();
 
                             // Try to stop the server gracefully
-                            if let Ok(mut handle) = server_handle.lock() {
-                                if let Some(server) = handle.take() {
-                                    let _ = server.stop(true);
+                            let server_to_stop = {
+                                if let Ok(mut handle) = server_handle.lock() {
+                                    handle.take()
+                                } else {
+                                    None
                                 }
+                            };
+
+                            if let Some(server) = server_to_stop {
+                                let _ = server.stop(true).await;
                             }
 
                             force_shutdown = true;
@@ -122,7 +128,7 @@ impl Drop for ShutdownManager {
 
 /// Utility function to set up basic signal handling without the full manager
 pub async fn setup_basic_signal_handling() -> Result<(), Box<dyn std::error::Error>> {
-    let mut signals = Signals::new(&[SIGINT, signal_hook::consts::SIGTERM])?;
+    let mut signals = Signals::new([SIGINT, signal_hook::consts::SIGTERM])?;
     let logger = crate::logger::get_logger();
 
     tokio::spawn(async move {

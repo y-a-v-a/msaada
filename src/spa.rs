@@ -26,7 +26,7 @@ pub async fn spa_fallback_handler(
         match NamedFile::open(&index_path) {
             Ok(file) => {
                 let response = file.into_response(&req);
-                Ok(response.into())
+                Ok(response)
             }
             Err(_) => Ok(HttpResponse::NotFound().finish()),
         }
@@ -66,7 +66,7 @@ pub async fn configurable_spa_handler(
         match NamedFile::open(&index_path) {
             Ok(file) => {
                 let response = file.into_response(&req);
-                Ok(response.into())
+                Ok(response)
             }
             Err(_) => Ok(HttpResponse::NotFound().finish()),
         }
