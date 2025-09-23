@@ -127,6 +127,7 @@ mod tests {
             assert!(port >= 40000);
             assert!(port < 40100);
         }
+    }
 
     #[test]
     fn test_create_server_addresses() {
@@ -210,7 +211,9 @@ mod tests {
         // Test with very high port numbers near the limit
         let result = NetworkUtils::resolve_port("127.0.0.1", 65535, true);
         // Should either succeed with 65535 or fail gracefully
-        if let Ok(port) = result { assert_eq!(port, 65535) }
+        if let Ok(port) = result {
+            assert_eq!(port, 65535)
+        }
 
         // Test with port 1 (privileged)
         let result = NetworkUtils::resolve_port("127.0.0.1", 1, false);
