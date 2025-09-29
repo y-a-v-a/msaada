@@ -24,21 +24,21 @@ setup_config_test_env() {
     mkdir -p "$base_dir/build"
     mkdir -p "$base_dir/static"
     
+    # Create directories for API files first
+    mkdir -p "$base_dir/api"
+    mkdir -p "$base_dir/public/api"
+    mkdir -p "$base_dir/dist/api"
+
     # Create test content in each directory
     create_test_html "$base_dir/index.html" "Base Index" "<h1>Base Directory</h1>"
     create_test_html "$base_dir/public/index.html" "Public Index" "<h1>Public Directory</h1>"
     create_test_html "$base_dir/dist/index.html" "Dist Index" "<h1>Dist Directory</h1>"
     create_test_html "$base_dir/build/index.html" "Build Index" "<h1>Build Directory</h1>"
-    
+
     # Create API test files
     echo '{"source": "base", "config": "none"}' > "$base_dir/api/test.json"
     echo '{"source": "public", "config": "serve.json"}' > "$base_dir/public/api/test.json"
     echo '{"source": "dist", "config": "package.json"}' > "$base_dir/dist/api/test.json"
-    
-    # Create directories for API files
-    mkdir -p "$base_dir/api"
-    mkdir -p "$base_dir/public/api" 
-    mkdir -p "$base_dir/dist/api"
     
     print_success "Configuration test environment created"
     echo "$base_dir"

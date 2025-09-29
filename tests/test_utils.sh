@@ -341,19 +341,17 @@ create_test_file() {
 create_test_json() {
     local filepath="$1"
     local json_content="$2"
-    
+
     # If filepath is not absolute, prepend TEMP_DIR
     if [[ "$filepath" != /* ]]; then
         filepath="$TEMP_DIR/$filepath"
     fi
-    
+
     echo "$json_content" | jq . > "$filepath" 2>/dev/null || {
         echo "$json_content" > "$filepath"
     }
-    # Only echo filepath if TEST_UTILS_RETURN_PATHS is set
-    if [[ "$TEST_UTILS_RETURN_PATHS" == "true" ]]; then
-        echo "$filepath"
-    fi
+    # Always return filepath for use with cp commands
+    echo "$filepath"
 }
 
 create_test_html() {
