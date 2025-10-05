@@ -35,22 +35,20 @@ pub async fn spa_fallback_handler(
     }
 }
 
-/// Advanced SPA fallback handler with URL processing based on configuration
-pub async fn configurable_spa_handler(
+/// Simple SPA fallback handler with URL processing based on configuration
+pub async fn simple_spa_handler(
     req: HttpRequest,
     directory: PathBuf,
     clean_urls: bool,
     trailing_slash: bool,
-    rewrites: Vec<crate::config::Rewrite>,
 ) -> Result<HttpResponse> {
     let path = req.path();
 
-    // First, apply URL rewrites if configured
-    let processed_path = apply_url_rewrites(path, &rewrites);
+    // Apply URL processing without rewrites
     let processed_path = if clean_urls {
-        apply_clean_urls(&processed_path)
+        apply_clean_urls(path)
     } else {
-        processed_path
+        path.to_string()
     };
     let processed_path = apply_trailing_slash(&processed_path, trailing_slash);
 
@@ -96,41 +94,6 @@ pub fn should_use_spa_fallback(path: &str) -> bool {
     true
 }
 
-/// URL rewrite handler based on configuration
-pub fn apply_url_rewrites(path: &str, rewrites: &[crate::config::Rewrite]) -> String {
-    for rewrite in rewrites {
-        // Exact match - highest priority
-        if rewrite.source == path {
-            return rewrite.destination.clone();
-        }
-
-        // Wildcard matching: /api/* matches /api/anything
-        if rewrite.source.ends_with("/*") {
-            let prefix = &rewrite.source[..rewrite.source.len() - 2]; // Remove "/*"
-            if path.starts_with(prefix)
-                && (path.len() == prefix.len() || path[prefix.len()..].starts_with('/'))
-            {
-                return rewrite.destination.clone();
-            }
-        }
-
-        // Wildcard matching: /api/(.*)  - regex-style pattern
-        if rewrite.source.contains("(.*)") {
-            let prefix = rewrite.source.split("(.*)").next().unwrap();
-            if path.starts_with(prefix) {
-                return rewrite.destination.clone();
-            }
-        }
-
-        // Catch-all pattern
-        if rewrite.source == "**" {
-            return rewrite.destination.clone();
-        }
-    }
-
-    path.to_string()
-}
-
 /// Clean URLs handler - removes .html extension from URLs
 pub fn apply_clean_urls(path: &str) -> String {
     if path.ends_with(".html") && path != "/index.html" {
@@ -155,6 +118,41 @@ pub fn apply_trailing_slash(path: &str, add_trailing_slash: bool) -> String {
 mod tests {
     use super::*;
     use crate::config::Rewrite;
+
+    /// URL rewrite handler based on configuration
+    fn apply_url_rewrites(path: &str, rewrites: &[crate::config::Rewrite]) -> String {
+        for rewrite in rewrites {
+            // Exact match - highest priority
+            if rewrite.source == path {
+                return rewrite.destination.clone();
+            }
+
+            // Wildcard matching: /api/* matches /api/anything
+            if rewrite.source.ends_with("/*") {
+                let prefix = &rewrite.source[..rewrite.source.len() - 2]; // Remove "/*"
+                if path.starts_with(prefix)
+                    && (path.len() == prefix.len() || path[prefix.len()..].starts_with('/'))
+                {
+                    return rewrite.destination.clone();
+                }
+            }
+
+            // Wildcard matching: /api/(.*)  - regex-style pattern
+            if rewrite.source.contains("(.*)") {
+                let prefix = rewrite.source.split("(.*)").next().unwrap();
+                if path.starts_with(prefix) {
+                    return rewrite.destination.clone();
+                }
+            }
+
+            // Catch-all pattern
+            if rewrite.source == "**" {
+                return rewrite.destination.clone();
+            }
+        }
+
+        path.to_string()
+    }
 
     #[test]
     fn test_should_use_spa_fallback() {

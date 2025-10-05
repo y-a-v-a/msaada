@@ -2,12 +2,12 @@ mod clipboard;
 mod config;
 mod logger;
 mod network;
+mod rewrite;
 mod shutdown;
 mod spa;
 mod tls;
 
 use actix_cors::Cors;
-use actix_files::Files;
 use actix_multipart::Multipart;
 use actix_web::{
     dev::{Service, ServiceRequest, ServiceResponse, Transform},
@@ -380,6 +380,105 @@ const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 const PKG_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 const SERVER_SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
+/// Custom file handler that supports URL rewrites and clean URLs
+/// This replaces the standard Files service to enable proper rewrite support
+async fn serve_file_with_rewrites(
+    req: HttpRequest,
+    serve_dir: PathBuf,
+    rewrites: Option<Vec<rewrite::CompiledRewrite>>,
+    clean_urls: bool,
+    use_etag: bool,
+    symlinks_enabled: bool,
+) -> Result<actix_files::NamedFile, Error> {
+    let mut path = req.path().to_string();
+    eprintln!("serve_file_with_rewrites called for path: {}", path);
+
+    // Apply URL rewrites if configured
+    if let Some(ref rewrite_rules) = rewrites {
+        eprintln!("Checking {} rewrite rules...", rewrite_rules.len());
+        if let Some(destination) = rewrite::match_rewrite(&path, rewrite_rules) {
+            eprintln!("Rewrite matched: {} -> {}", path, destination);
+            log::debug!("Rewrite matched: {} -> {}", path, destination);
+            path = destination;
+        } else {
+            eprintln!("No rewrite match for: {}", path);
+        }
+    } else {
+        eprintln!("No rewrite rules configured");
+    }
+
+    // Remove leading slash and resolve to file path
+    let file_path = serve_dir.join(path.trim_start_matches('/'));
+
+    // Check for symlinks if they're disabled
+    if !symlinks_enabled {
+        if let Ok(metadata) = file_path.symlink_metadata() {
+            if metadata.file_type().is_symlink() {
+                return Err(actix_web::error::ErrorNotFound("Symlinks are not allowed"));
+            }
+        }
+    }
+
+    // Try to open the file
+    match actix_files::NamedFile::open(&file_path) {
+        Ok(mut file) => {
+            // Configure ETag
+            file = if use_etag {
+                file.use_etag(true).use_last_modified(false)
+            } else {
+                file.use_etag(false).use_last_modified(true)
+            };
+            Ok(file)
+        }
+        Err(_) => {
+            // If file not found and clean URLs enabled, try adding .html extension
+            if clean_urls && !path.ends_with(".html") && !path.ends_with('/') {
+                let html_path = file_path.with_extension("html");
+                match actix_files::NamedFile::open(&html_path) {
+                    Ok(mut file) => {
+                        file = if use_etag {
+                            file.use_etag(true).use_last_modified(false)
+                        } else {
+                            file.use_etag(false).use_last_modified(true)
+                        };
+                        log::debug!("Clean URL: served {} as {}", path, html_path.display());
+                        Ok(file)
+                    }
+                    Err(_) => {
+                        // Try index.html if path is a directory
+                        let index_path = file_path.join("index.html");
+                        match actix_files::NamedFile::open(&index_path) {
+                            Ok(mut file) => {
+                                file = if use_etag {
+                                    file.use_etag(true).use_last_modified(false)
+                                } else {
+                                    file.use_etag(false).use_last_modified(true)
+                                };
+                                Ok(file)
+                            }
+                            Err(e) => Err(actix_web::error::ErrorNotFound(e)),
+                        }
+                    }
+                }
+            } else {
+                // Try index.html if path is a directory
+                let index_path = file_path.join("index.html");
+                match actix_files::NamedFile::open(&index_path) {
+                    Ok(mut file) => {
+                        file = if use_etag {
+                            file.use_etag(true).use_last_modified(false)
+                        } else {
+                            file.use_etag(false).use_last_modified(true)
+                        };
+                        Ok(file)
+                    }
+                    Err(e) => Err(actix_web::error::ErrorNotFound(e)),
+                }
+            }
+        }
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Define the template content from external files
@@ -568,7 +667,6 @@ async fn main() -> std::io::Result<()> {
     let effective_clean_urls = configuration.clean_urls;
     let effective_trailing_slash = configuration.trailing_slash;
     let effective_compression_enabled = !compression_disabled;
-    let effective_directory_listing = configuration.directory_listing;
 
     // Use the public directory from configuration if available, otherwise use serve_dir
     let effective_serve_dir = if let Some(ref public_dir) = configuration.public {
@@ -743,18 +841,26 @@ async fn main() -> std::io::Result<()> {
         None
     };
 
-    // Log rewrites configuration for debugging
-    if !configuration.rewrites.is_empty() {
-        log::info!("Loaded {} URL rewrites from configuration", configuration.rewrites.len());
-        for rewrite in &configuration.rewrites {
-            log::info!("  {} -> {}", rewrite.source, rewrite.destination);
+    // Compile rewrites with regex patterns
+    let compiled_rewrites = if !configuration.rewrites.is_empty() {
+        match rewrite::compile_rewrites(&configuration.rewrites) {
+            Ok(compiled) => {
+                log::info!("Loaded {} URL rewrites from configuration", compiled.len());
+                Some(compiled)
+            }
+            Err(e) => {
+                app_logger.error(&format!("Failed to compile rewrite patterns: {}", e));
+                exit(1);
+            }
         }
-    }
+    } else {
+        None
+    };
 
     let server = HttpServer::new({
         // Clone values that need to be moved into the closure
         let effective_serve_dir = effective_serve_dir.clone();
-        let config_rewrites = configuration.rewrites.clone();
+        let rewrites = compiled_rewrites.clone();
 
         move || {
             // Create custom headers middleware
@@ -772,133 +878,62 @@ async fn main() -> std::io::Result<()> {
                 .wrap(headers)
                 .wrap(actix_web::middleware::Condition::new(
                     cors_enabled,
-                    Cors::permissive()
+                    Cors::permissive(),
                 ))
                 .wrap(actix_web::middleware::Condition::new(
                     effective_compression_enabled,
                     Compress::default(),
-                ));
-
-            // Register the POST handler FIRST with highest priority
-            app = app.service(handle_post);
+                ))
+                // Register the POST handler FIRST with highest priority
+                .service(handle_post);
 
             // Register self-test endpoint if --test flag is provided
             if test_flag {
                 app = app.service(self_test_endpoint);
             }
 
-            // Add rewrite routes if configured
-            for rewrite in &config_rewrites {
-                let source = rewrite.source.clone();
-                let destination = rewrite.destination.clone();
-                let serve_dir_clone = effective_serve_dir.clone();
+            // Register custom file handler with rewrite and clean URLs support
+            // This replaces the standard Files service to enable proper URL rewriting
+            let file_handler = {
+                let serve_dir = effective_serve_dir.clone();
+                let rewrites_clone = rewrites.clone();
+                let clean_urls = effective_clean_urls;
+                let use_etag = effective_etag_enabled;
+                let symlinks = effective_symlinks_enabled;
 
-                // Handle different rewrite patterns
-                if source.ends_with("/*") || source.contains("(.*)") {
-                    // Wildcard route - match prefix
-                    let prefix = if source.ends_with("/*") {
-                        source[..source.len() - 2].to_string()
-                    } else {
-                        source.split("(.*)").next().unwrap().to_string()
-                    };
-
-                    let route_pattern = format!("{}{{tail:.*}}", prefix);
-                    log::info!("Registering rewrite route: {} -> {}", route_pattern, destination);
-
-                    app = app.route(
-                        &route_pattern,
-                        web::get().to(move |_req: HttpRequest| {
-                            let dest = destination.clone();
-                            let dir = serve_dir_clone.clone();
-                            async move {
-                                let file_path = dir.join(dest.trim_start_matches('/'));
-                                actix_files::NamedFile::open(file_path)
-                            }
-                        }),
-                    );
-                } else if source == "**" {
-                    // Skip catch-all - handled by SPA fallback
-                    continue;
-                } else {
-                    // Exact match route
-                    app = app.route(
-                        &source,
-                        web::get().to(move |_req: HttpRequest| {
-                            let dest = destination.clone();
-                            let dir = serve_dir_clone.clone();
-                            async move {
-                                let file_path = dir.join(dest.trim_start_matches('/'));
-                                actix_files::NamedFile::open(file_path)
-                            }
-                        }),
-                    );
+                move |req: HttpRequest| {
+                    serve_file_with_rewrites(
+                        req,
+                        serve_dir.clone(),
+                        rewrites_clone.clone(),
+                        clean_urls,
+                        use_etag,
+                        symlinks,
+                    )
                 }
-            }
+            };
 
-            // Configure static file serving with SPA support
-            let serve_path = effective_serve_dir.to_string_lossy().to_string();
-            let mut files_service = Files::new("/", serve_path)
-                .index_file("index.html")
-                .use_etag(effective_etag_enabled)
-                .use_last_modified(!effective_etag_enabled);
-
-            // Enable directory listing if configured
-            if effective_directory_listing {
-                files_service = files_service.show_files_listing();
-            }
-
-            // Apply symlink handling based on configuration
-            if effective_symlinks_enabled {
-                // Enable symlinks with basic validation for dev usage
-                files_service = files_service.path_filter({
-                    move |path, _req| {
-                        // For dev servers, we just need basic symlink resolution
-                        // Block obvious directory traversal attempts but don't over-engineer
-                        if path.to_string_lossy().contains("..") {
-                            return false; // Block obvious traversal attempts
-                        }
-
-                        // Allow symlinks and let the filesystem handle the rest
-                        true
-                    }
-                });
-            } else {
-                // Default: Block symlinks for consistency with other dev servers
-                files_service = files_service.path_filter({
-                    let serve_dir = effective_serve_dir.clone();
-                    move |path, _req| {
-                        let full_path = serve_dir.join(path);
-                        match full_path.symlink_metadata() {
-                            Ok(metadata) => !metadata.file_type().is_symlink(),
-                            Err(_) => true, // Allow if we can't check - let actix handle it
-                        }
-                    }
-                });
-            }
-
-            app = app.service(files_service);
+            // Note: Directory listing feature removed in favor of simpler file serving
+            // This is acceptable for a development server
 
             // Add SPA fallback handler if single page app mode is enabled
+            // Otherwise use the file handler as default service
             if effective_single_page_app {
                 // Create a configurable SPA handler that uses URL processing functions
                 let spa_handler = {
                     let serve_dir = effective_serve_dir.clone();
                     let clean_urls = effective_clean_urls;
                     let trailing_slash = effective_trailing_slash;
-                    let rewrites = config_rewrites.clone();
 
                     move |req: HttpRequest| {
-                        spa::configurable_spa_handler(
-                            req,
-                            serve_dir.clone(),
-                            clean_urls,
-                            trailing_slash,
-                            rewrites.clone(),
-                        )
+                        spa::simple_spa_handler(req, serve_dir.clone(), clean_urls, trailing_slash)
                     }
                 };
 
                 app = app.default_service(web::route().to(spa_handler));
+            } else {
+                // Use file handler as default service (catches all unmatched routes)
+                app = app.default_service(web::get().to(file_handler));
             }
 
             app

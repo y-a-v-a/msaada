@@ -182,7 +182,10 @@ impl ConfigLoader {
                 "serve.json" => {
                     config = serde_json::from_str(&contents)
                         .map_err(|e| ConfigError::ParseError(format!("serve.json: {}", e)))?;
-                    log::info!("Parsed serve.json successfully, rewrites: {}", config.rewrites.len());
+                    log::info!(
+                        "Parsed serve.json successfully, rewrites: {}",
+                        config.rewrites.len()
+                    );
                 }
                 "now.json" => {
                     #[derive(Deserialize)]

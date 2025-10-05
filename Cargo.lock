@@ -1692,6 +1692,7 @@ dependencies = [
  "port_check",
  "port_scanner",
  "rcgen",
+ "regex",
  "reqwest",
  "rustls",
  "rustls-pemfile",
