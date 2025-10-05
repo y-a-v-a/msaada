@@ -9,14 +9,20 @@ Run all tests:
 cargo test
 ```
 
-Run specific test suites:
+Run specific test suites (by file):
 ```bash
-cargo test http_server      # HTTP server tests
-cargo test config           # Configuration tests
-cargo test post_requests    # POST request tests
-cargo test https_ssl        # HTTPS/SSL tests
-cargo test advanced         # Advanced features
-cargo test network_ports    # Network/port tests
+cargo test --test http_server      # All tests in http_server.rs
+cargo test --test config           # All tests in config.rs
+cargo test --test post_requests    # All tests in post_requests.rs
+cargo test --test https_ssl        # All tests in https_ssl.rs
+cargo test --test advanced_features # All tests in advanced_features.rs
+cargo test --test network_ports    # All tests in network_ports.rs
+```
+
+Run tests by name pattern:
+```bash
+cargo test file_serving     # Any test with "file_serving" in name
+cargo test json             # Any test with "json" in name
 ```
 
 Run with detailed output:
@@ -159,8 +165,11 @@ All dependencies are declared in `Cargo.toml` and automatically installed.
 
 ### Development Workflow
 ```bash
-# Quick development test
-cargo test http_server post_requests
+# Quick development test (specific files)
+cargo test --test http_server --test post_requests
+
+# Or run by name pattern
+cargo test file_serving post
 
 # Full pre-commit testing
 cargo test --all-targets
@@ -186,7 +195,7 @@ cargo test --test http_server
 
 ### Advanced Testing
 ```bash
-# Run tests matching pattern
+# Run tests matching pattern (searches function names)
 cargo test json
 
 # Run with custom test threads
@@ -195,6 +204,25 @@ cargo test -- --test-threads=1
 # Generate coverage report (requires cargo-tarpaulin)
 cargo tarpaulin --out Html --output-dir coverage/
 ```
+
+### Understanding Test Filtering
+
+Cargo provides two ways to filter tests:
+
+**1. By test file** (use `--test` flag):
+```bash
+cargo test --test http_server    # Runs all tests in tests/http_server.rs
+```
+
+**2. By function name** (no flag, just pattern):
+```bash
+cargo test file_serving           # Runs any test function containing "file_serving"
+cargo test basic_file_serving     # Runs exact test function name
+```
+
+**Key difference**:
+- `--test <file>` runs entire test files
+- `<pattern>` searches within test function names across all files
 
 ## Adding New Tests
 
