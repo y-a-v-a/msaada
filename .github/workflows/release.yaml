@@ -28,23 +28,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl jq openssl
 
-      - name: Run unit tests
-        run: cargo test --verbose
-
       - name: Build release binary
         run: cargo build --release --verbose
 
-      - name: Run comprehensive integration tests
-        run: |
-          chmod +x tests/run_comprehensive_tests.sh tests/cleanup_tests.sh
-          cd tests && ./run_comprehensive_tests.sh --verbose --force-clean
+      - name: Run all tests with backtrace
+        env:
+          RUST_BACKTRACE: 1
+        run: cargo test --verbose --all-targets
 
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: release-test-failure-logs
-          path: tests/.tmp/
+          path: |
+            target/debug/
           retention-days: 30
 
   release:

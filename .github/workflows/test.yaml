@@ -43,16 +43,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y curl jq openssl
 
-    - name: Run cargo tests
-      run: cargo test --verbose
-
     - name: Build release binary
       run: cargo build --release --verbose
 
-    - name: Run quick integration tests
-      run: |
-        chmod +x tests/run_comprehensive_tests.sh tests/cleanup_tests.sh
-        cd tests && ./run_comprehensive_tests.sh --quick --verbose --force-clean
+    - name: Run all tests with backtrace
+      env:
+        RUST_BACKTRACE: 1
+      run: cargo test --verbose --all-targets
 
     - name: Upload test logs on failure
       if: failure()
@@ -60,7 +57,7 @@ jobs:
       with:
         name: quick-test-logs
         path: |
-          tests/.tmp/
+          target/debug/
         retention-days: 3
 
   test-coverage:
@@ -87,22 +84,20 @@ jobs:
     - name: Run comprehensive test suite for coverage
       id: coverage
       continue-on-error: true
+      env:
+        RUST_BACKTRACE: 1
       run: |
-        chmod +x tests/run_comprehensive_tests.sh
-        cd tests
-
         # Run tests and capture results
-        chmod +x run_comprehensive_tests.sh cleanup_tests.sh
-        if ./run_comprehensive_tests.sh --verbose --force-clean > test_results.log 2>&1; then
+        if cargo test --verbose --all-targets > test_results.log 2>&1; then
           echo "tests_passed=true" >> $GITHUB_OUTPUT
         else
           echo "tests_passed=false" >> $GITHUB_OUTPUT
         fi
 
-        # Extract test statistics
-        TOTAL_TESTS=$(grep -E "Total Tests:" test_results.log | tail -n1 | grep -oE '[0-9]+' | head -n1 || echo "0")
-        PASSED_TESTS=$(grep -E "Passed:" test_results.log | tail -n1 | grep -oE '[0-9]+' | head -n1 || echo "0")
-        FAILED_TESTS=$(grep -E "Failed:" test_results.log | tail -n1 | grep -oE '[0-9]+' | head -n1 || echo "0")
+        # Extract test statistics from cargo test output
+        TOTAL_TESTS=$(grep -E "test result:" test_results.log | tail -n1 | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' || echo "0")
+        PASSED_TESTS=$(grep -E "test result:" test_results.log | tail -n1 | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' || echo "0")
+        FAILED_TESTS=$(grep -E "test result:" test_results.log | tail -n1 | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' || echo "0")
 
         echo "total_tests=$TOTAL_TESTS" >> $GITHUB_OUTPUT
         echo "passed_tests=$PASSED_TESTS" >> $GITHUB_OUTPUT
@@ -154,6 +149,5 @@ jobs:
       with:
         name: test-coverage-results
         path: |
-          tests/test_results.log
-          tests/.tmp/
+          test_results.log
         retention-days: 7
