@@ -106,7 +106,7 @@ where
 #[post("/{path:.*}")]
 async fn handle_post(
     path: web::Path<String>,
-    payload: web::Payload,
+    mut payload: web::Payload,
     headers: HttpRequest,
 ) -> Result<impl Responder, Error> {
     let path_str = path.into_inner();
@@ -136,25 +136,43 @@ async fn handle_post(
 
                 while let Some(item) = multipart.next().await {
                     match item {
-                        Ok(field) => {
+                        Ok(mut field) => {
                             let content_disposition = field.content_disposition();
                             let name = content_disposition
                                 .get_name()
                                 .unwrap_or("unknown")
                                 .to_string();
+                            let filename = content_disposition.get_filename().map(String::from);
 
                             // If it's a file, just store the filename
-                            if let Some(filename) = content_disposition.get_filename() {
+                            if let Some(fname) = filename {
+                                // Read file data but don't store it (just acknowledge receipt)
+                                let mut file_size = 0;
+                                while let Some(chunk) = field.next().await {
+                                    match chunk {
+                                        Ok(data) => file_size += data.len(),
+                                        Err(e) => {
+                                            log::warn!("Error reading file chunk: {}", e);
+                                            break;
+                                        }
+                                    }
+                                }
                                 files.push(json!({
                                     "field_name": name,
-                                    "filename": filename
+                                    "filename": fname,
+                                    "size": file_size
                                 }));
                             } else {
                                 // For regular form fields, get the value
                                 let mut data = Vec::new();
-                                let mut field_stream = field;
-                                while let Some(chunk) = field_stream.next().await {
-                                    data.extend_from_slice(&chunk?);
+                                while let Some(chunk) = field.next().await {
+                                    match chunk {
+                                        Ok(bytes) => data.extend_from_slice(&bytes),
+                                        Err(e) => {
+                                            log::warn!("Error reading field chunk: {}", e);
+                                            break;
+                                        }
+                                    }
                                 }
 
                                 if let Ok(value) = String::from_utf8(data) {
@@ -163,9 +181,9 @@ async fn handle_post(
                             }
                         }
                         Err(e) => {
-                            return Ok(HttpResponse::BadRequest().json(json!({
-                                "error": format!("Field error: {}", e)
-                            })));
+                            log::error!("Multipart field error: {}", e);
+                            // Don't fail the whole request, just skip this field
+                            continue;
                         }
                     }
                 }
@@ -178,12 +196,18 @@ async fn handle_post(
 
             // Handle application/json
             (mime::APPLICATION, mime::JSON) => {
-                let bytes = web::BytesMut::new();
-                let mut body = bytes;
-                let mut stream = payload;
+                let mut body = web::BytesMut::new();
 
-                while let Some(chunk) = stream.next().await {
-                    body.extend_from_slice(&chunk?);
+                while let Some(chunk) = payload.next().await {
+                    match chunk {
+                        Ok(bytes) => body.extend_from_slice(&bytes),
+                        Err(e) => {
+                            log::error!("Error reading JSON payload: {}", e);
+                            return Ok(HttpResponse::BadRequest().json(json!({
+                                "error": format!("Failed to read request body: {}", e)
+                            })));
+                        }
+                    }
                 }
 
                 match serde_json::from_slice::<Value>(&body) {
@@ -191,6 +215,7 @@ async fn handle_post(
                         response_data["json_data"] = json_data;
                     }
                     Err(e) => {
+                        log::error!("JSON parse error: {}", e);
                         return Ok(HttpResponse::BadRequest().json(json!({
                             "error": format!("JSON parse error: {}", e)
                         })));
@@ -200,12 +225,18 @@ async fn handle_post(
 
             // Handle application/x-www-form-urlencoded
             (mime::APPLICATION, sub) if sub == "x-www-form-urlencoded" => {
-                let bytes = web::BytesMut::new();
-                let mut body = bytes;
-                let mut stream = payload;
+                let mut body = web::BytesMut::new();
 
-                while let Some(chunk) = stream.next().await {
-                    body.extend_from_slice(&chunk?);
+                while let Some(chunk) = payload.next().await {
+                    match chunk {
+                        Ok(bytes) => body.extend_from_slice(&bytes),
+                        Err(e) => {
+                            log::error!("Error reading form payload: {}", e);
+                            return Ok(HttpResponse::BadRequest().json(json!({
+                                "error": format!("Failed to read request body: {}", e)
+                            })));
+                        }
+                    }
                 }
 
                 let body_str = String::from_utf8_lossy(&body);
@@ -233,12 +264,18 @@ async fn handle_post(
 
             // Handle text/* content type (plain text)
             (mime::TEXT, _) => {
-                let bytes = web::BytesMut::new();
-                let mut body = bytes;
-                let mut stream = payload;
+                let mut body = web::BytesMut::new();
 
-                while let Some(chunk) = stream.next().await {
-                    body.extend_from_slice(&chunk?);
+                while let Some(chunk) = payload.next().await {
+                    match chunk {
+                        Ok(bytes) => body.extend_from_slice(&bytes),
+                        Err(e) => {
+                            log::error!("Error reading text payload: {}", e);
+                            return Ok(HttpResponse::BadRequest().json(json!({
+                                "error": format!("Failed to read request body: {}", e)
+                            })));
+                        }
+                    }
                 }
 
                 match String::from_utf8(body.to_vec()) {
@@ -706,6 +743,14 @@ async fn main() -> std::io::Result<()> {
         None
     };
 
+    // Log rewrites configuration for debugging
+    if !configuration.rewrites.is_empty() {
+        log::info!("Loaded {} URL rewrites from configuration", configuration.rewrites.len());
+        for rewrite in &configuration.rewrites {
+            log::info!("  {} -> {}", rewrite.source, rewrite.destination);
+        }
+    }
+
     let server = HttpServer::new({
         // Clone values that need to be moved into the closure
         let effective_serve_dir = effective_serve_dir.clone();
@@ -718,21 +763,21 @@ async fn main() -> std::io::Result<()> {
                 .add(("X-Server", SERVER_SIGNATURE))
                 .add(("X-Version", PKG_VERSION));
 
-            // Setup CORS middleware (conditionally configured)
-            let cors = if cors_enabled {
-                Cors::permissive() // Use permissive mode which sets proper headers
-            } else {
-                Cors::default() // Restrictive default - no CORS
-            };
-
             // Build the app with middleware applied in proper order
-            // Use Condition middleware to optionally enable compression
-            let mut app = App::new().wrap(CustomLogger).wrap(headers).wrap(cors).wrap(
-                actix_web::middleware::Condition::new(
+            // Add CORS middleware only if --cors flag is used
+            // This matches Vercel's serve behavior: no CORS headers without the flag
+            // Same-origin requests work naturally without CORS middleware
+            let mut app = App::new()
+                .wrap(CustomLogger)
+                .wrap(headers)
+                .wrap(actix_web::middleware::Condition::new(
+                    cors_enabled,
+                    Cors::permissive()
+                ))
+                .wrap(actix_web::middleware::Condition::new(
                     effective_compression_enabled,
                     Compress::default(),
-                ),
-            );
+                ));
 
             // Register the POST handler FIRST with highest priority
             app = app.service(handle_post);
@@ -757,8 +802,11 @@ async fn main() -> std::io::Result<()> {
                         source.split("(.*)").next().unwrap().to_string()
                     };
 
+                    let route_pattern = format!("{}{{tail:.*}}", prefix);
+                    log::info!("Registering rewrite route: {} -> {}", route_pattern, destination);
+
                     app = app.route(
-                        &format!("{}{{tail:.*}}", prefix),
+                        &route_pattern,
                         web::get().to(move |_req: HttpRequest| {
                             let dest = destination.clone();
                             let dir = serve_dir_clone.clone();

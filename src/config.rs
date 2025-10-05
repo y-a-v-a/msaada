@@ -157,7 +157,13 @@ impl ConfigLoader {
 
         // Try to load configuration from the files
         for file_name in config_files {
-            let config_path = self.serve_dir.join(&file_name);
+            // If custom config path is provided, use it directly (it may be absolute)
+            // Otherwise, join with serve_dir for relative paths
+            let config_path = if custom_config_path.is_some() {
+                PathBuf::from(&file_name)
+            } else {
+                self.serve_dir.join(&file_name)
+            };
 
             if !config_path.exists() {
                 if custom_config_path.is_some() {
@@ -170,10 +176,13 @@ impl ConfigLoader {
 
             let contents = fs::read_to_string(&config_path)?;
 
+            log::info!("Loading configuration from: {}", config_path.display());
+
             match file_name.as_str() {
                 "serve.json" => {
                     config = serde_json::from_str(&contents)
                         .map_err(|e| ConfigError::ParseError(format!("serve.json: {}", e)))?;
+                    log::info!("Parsed serve.json successfully, rewrites: {}", config.rewrites.len());
                 }
                 "now.json" => {
                     #[derive(Deserialize)]

@@ -28,9 +28,10 @@ async fn cors_support() {
 
     let client = reqwest::Client::new();
 
-    // Sub-test 1: CORS headers present
+    // Sub-test 1: CORS headers present when Origin header is sent
     let response = client
         .get(server.url())
+        .header("Origin", "http://example.com")
         .send()
         .await
         .expect("GET request failed");
@@ -39,11 +40,8 @@ async fn cors_support() {
     assert!(
         response
             .headers()
-            .contains_key("access-control-allow-origin")
-            || response
-                .headers()
-                .contains_key("access-control-allow-methods"),
-        "CORS headers should be present"
+            .contains_key("access-control-allow-origin"),
+        "CORS access-control-allow-origin header should be present"
     );
 
     // Sub-test 2: OPTIONS preflight request
