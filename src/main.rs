@@ -531,6 +531,7 @@ async fn main() -> std::io::Result<()> {
     let effective_clean_urls = configuration.clean_urls;
     let effective_trailing_slash = configuration.trailing_slash;
     let effective_compression_enabled = !compression_disabled;
+    let effective_directory_listing = configuration.directory_listing;
 
     // Use the public directory from configuration if available, otherwise use serve_dir
     let effective_serve_dir = if let Some(ref public_dir) = configuration.public {
@@ -719,24 +720,21 @@ async fn main() -> std::io::Result<()> {
 
             // Setup CORS middleware (conditionally configured)
             let cors = if cors_enabled {
-                Cors::default()
-                    .allow_any_origin()
-                    .allow_any_header()
-                    .allow_any_method()
-                    .supports_credentials()
+                Cors::permissive() // Use permissive mode which sets proper headers
             } else {
-                Cors::default().allow_any_origin() // Still need minimal CORS setup
+                Cors::default() // Restrictive default - no CORS
             };
 
             // Build the app with middleware applied in proper order
-            // TODO: Implement conditional compression based on effective_compression_enabled flag
-            // For now, compression is always enabled as implementing conditional middleware
-            // requires more complex type handling in actix-web
+            // Use Condition middleware to optionally enable compression
             let mut app = App::new()
                 .wrap(CustomLogger)
                 .wrap(headers)
                 .wrap(cors)
-                .wrap(Compress::default());
+                .wrap(actix_web::middleware::Condition::new(
+                    effective_compression_enabled,
+                    Compress::default(),
+                ));
 
             // Register the POST handler FIRST with highest priority
             app = app.service(handle_post);
@@ -746,12 +744,62 @@ async fn main() -> std::io::Result<()> {
                 app = app.service(self_test_endpoint);
             }
 
+            // Add rewrite routes if configured
+            for rewrite in &config_rewrites {
+                let source = rewrite.source.clone();
+                let destination = rewrite.destination.clone();
+                let serve_dir_clone = effective_serve_dir.clone();
+
+                // Handle different rewrite patterns
+                if source.ends_with("/*") || source.contains("(.*)") {
+                    // Wildcard route - match prefix
+                    let prefix = if source.ends_with("/*") {
+                        source[..source.len() - 2].to_string()
+                    } else {
+                        source.split("(.*)").next().unwrap().to_string()
+                    };
+
+                    app = app.route(
+                        &format!("{}{{tail:.*}}", prefix),
+                        web::get().to(move |_req: HttpRequest| {
+                            let dest = destination.clone();
+                            let dir = serve_dir_clone.clone();
+                            async move {
+                                let file_path = dir.join(dest.trim_start_matches('/'));
+                                actix_files::NamedFile::open(file_path)
+                            }
+                        }),
+                    );
+                } else if source == "**" {
+                    // Skip catch-all - handled by SPA fallback
+                    continue;
+                } else {
+                    // Exact match route
+                    app = app.route(
+                        &source,
+                        web::get().to(move |_req: HttpRequest| {
+                            let dest = destination.clone();
+                            let dir = serve_dir_clone.clone();
+                            async move {
+                                let file_path = dir.join(dest.trim_start_matches('/'));
+                                actix_files::NamedFile::open(file_path)
+                            }
+                        }),
+                    );
+                }
+            }
+
             // Configure static file serving with SPA support
             let serve_path = effective_serve_dir.to_string_lossy().to_string();
             let mut files_service = Files::new("/", serve_path)
                 .index_file("index.html")
                 .use_etag(effective_etag_enabled)
                 .use_last_modified(!effective_etag_enabled);
+
+            // Enable directory listing if configured
+            if effective_directory_listing {
+                files_service = files_service.show_files_listing();
+            }
 
             // Apply symlink handling based on configuration
             if effective_symlinks_enabled {

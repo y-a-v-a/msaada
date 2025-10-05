@@ -99,23 +99,30 @@ pub fn should_use_spa_fallback(path: &str) -> bool {
 /// URL rewrite handler based on configuration
 pub fn apply_url_rewrites(path: &str, rewrites: &[crate::config::Rewrite]) -> String {
     for rewrite in rewrites {
-        // Simple pattern matching - in a full implementation you'd want
-        // proper glob pattern matching
-        if rewrite.source == "**" || path.starts_with(&rewrite.source) {
-            return rewrite.destination.clone();
-        }
-
-        // Exact match
+        // Exact match - highest priority
         if rewrite.source == path {
             return rewrite.destination.clone();
         }
 
-        // Wildcard matching (simplified)
-        if rewrite.source.ends_with("*") {
-            let prefix = &rewrite.source[..rewrite.source.len() - 1];
+        // Wildcard matching: /api/* matches /api/anything
+        if rewrite.source.ends_with("/*") {
+            let prefix = &rewrite.source[..rewrite.source.len() - 2]; // Remove "/*"
+            if path.starts_with(prefix) && (path.len() == prefix.len() || path[prefix.len()..].starts_with('/')) {
+                return rewrite.destination.clone();
+            }
+        }
+
+        // Wildcard matching: /api/(.*)  - regex-style pattern
+        if rewrite.source.contains("(.*)") {
+            let prefix = rewrite.source.split("(.*)").next().unwrap();
             if path.starts_with(prefix) {
                 return rewrite.destination.clone();
             }
+        }
+
+        // Catch-all pattern
+        if rewrite.source == "**" {
+            return rewrite.destination.clone();
         }
     }
 
@@ -141,6 +148,7 @@ pub fn apply_trailing_slash(path: &str, add_trailing_slash: bool) -> String {
         path.to_string()
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -416,16 +424,16 @@ mod tests {
             },
         ];
 
-        // Empty source matches everything (any string starts with empty string)
+        // Empty source doesn't match (new logic requires exact match, wildcard, or regex pattern)
         assert_eq!(
             apply_url_rewrites("/test", &malformed_rewrites),
-            "/fallback"
+            "/test"
         );
 
-        // Valid source would match second rule, but first rule matches everything
+        // "/valid" exact matches second rule
         assert_eq!(
             apply_url_rewrites("/valid", &malformed_rewrites),
-            "/fallback"
+            ""
         );
     }
 
@@ -442,14 +450,14 @@ mod tests {
             },
         ];
 
-        // Due to processing order, "/api" starts with "/api", so first rule matches
+        // Exact match for "/api"
         assert_eq!(apply_url_rewrites("/api", &rewrites), "/api-exact");
 
-        // "/api/users" starts with "/api", so first rule matches
-        assert_eq!(apply_url_rewrites("/api/users", &rewrites), "/api-exact");
+        // "/api/users" matches the wildcard pattern "/api/*"
+        assert_eq!(apply_url_rewrites("/api/users", &rewrites), "/api-wildcard/");
 
         // Non-matching paths
-        assert_eq!(apply_url_rewrites("/apiold", &rewrites), "/api-exact"); // Actually matches due to starts_with
+        assert_eq!(apply_url_rewrites("/apiold", &rewrites), "/apiold"); // No match - not exact and not "/api/*"
         assert_eq!(apply_url_rewrites("/other", &rewrites), "/other");
     }
 

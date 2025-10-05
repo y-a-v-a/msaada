@@ -47,7 +47,32 @@ atty = "0.2"
 p12 = "0.6"
 
 [dev-dependencies]
+# Existing test dependency
 tempfile = "3.0"
+
+# HTTP client for testing
+reqwest = { version = "0.11", features = ["json", "multipart", "stream"] }
+
+# Async testing utilities
+tokio-test = "0.4"
+
+# Certificate generation for SSL tests
+rcgen = "0.12"
+
+# Additional assertions
+assert_matches = "1.5"
+
+# File system utilities
+walkdir = "2.0"
+
+# Network testing
+port_scanner = "0.1"
+
+# JSON path assertions - commented out due to version conflicts
+# serde_json_path = "0.6"  # Will use serde_json directly for JSON testing
+
+# Certificate utilities for HTTPS tests (rustls-pemfile already in main deps)
+# openssl = "0.10"  # Commented out due to system dependency issues - use rustls instead
 
 [profile.release]
 opt-level = 3
