@@ -19,12 +19,9 @@ use reqwest::StatusCode;
 /// Migrated from test_cors_functionality() in test_advanced_features.sh
 #[tokio::test]
 async fn cors_support() {
-    let server = TestServer::new_with_options(
-        None,
-        Some(vec!["--cors".to_string()]),
-    )
-    .await
-    .expect("Failed to start server with CORS");
+    let server = TestServer::new_with_options(None, Some(vec!["--cors".to_string()]))
+        .await
+        .expect("Failed to start server with CORS");
 
     FileSystemHelper::setup_advanced_test_files(&server.server_dir)
         .expect("Failed to setup advanced test files");
@@ -40,8 +37,12 @@ async fn cors_support() {
 
     response.assert_status(StatusCode::OK);
     assert!(
-        response.headers().contains_key("access-control-allow-origin")
-            || response.headers().contains_key("access-control-allow-methods"),
+        response
+            .headers()
+            .contains_key("access-control-allow-origin")
+            || response
+                .headers()
+                .contains_key("access-control-allow-methods"),
         "CORS headers should be present"
     );
 
@@ -114,10 +115,9 @@ async fn gzip_compression() {
 /// Migrated from test_spa_mode() in test_advanced_features.sh
 #[tokio::test]
 async fn single_page_application_mode() {
-    let test_files = FileSystemHelper::setup_advanced_test_files(
-        &std::env::temp_dir().join("spa_test"),
-    )
-    .expect("Failed to setup test files");
+    let test_files =
+        FileSystemHelper::setup_advanced_test_files(&std::env::temp_dir().join("spa_test"))
+            .expect("Failed to setup test files");
 
     let server = TestServer::new_with_options(
         Some(test_files.spa_dir.clone()),
@@ -231,13 +231,16 @@ async fn http_caching() {
 /// Migrated from test_symlinks_support() in test_advanced_features.sh
 #[tokio::test]
 async fn symbolic_links() {
-    let test_files = FileSystemHelper::setup_advanced_test_files(
-        &std::env::temp_dir().join("symlink_test"),
-    )
-    .expect("Failed to setup test files");
+    let test_files =
+        FileSystemHelper::setup_advanced_test_files(&std::env::temp_dir().join("symlink_test"))
+            .expect("Failed to setup test files");
 
     // Create symlink
-    let symlink_path = test_files.index_html.parent().unwrap().join("symlink_test.txt");
+    let symlink_path = test_files
+        .index_html
+        .parent()
+        .unwrap()
+        .join("symlink_test.txt");
     let target_file = test_files.symlink_target.join("target.txt");
 
     if unix::fs::symlink(&target_file, &symlink_path).is_ok() {

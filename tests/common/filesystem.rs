@@ -313,9 +313,7 @@ impl FileSystemHelper {
     }
 
     /// Create SSL/HTTPS test files
-    pub fn setup_ssl_test_files(
-        dir: &Path,
-    ) -> Result<SslTestFiles, Box<dyn std::error::Error>> {
+    pub fn setup_ssl_test_files(dir: &Path) -> Result<SslTestFiles, Box<dyn std::error::Error>> {
         // Create test directory
         std::fs::create_dir_all(dir)?;
 
@@ -343,9 +341,7 @@ impl FileSystemHelper {
     }
 
     /// Create POST test files for upload testing
-    pub fn setup_post_test_files(
-        dir: &Path,
-    ) -> Result<PostTestFiles, Box<dyn std::error::Error>> {
+    pub fn setup_post_test_files(dir: &Path) -> Result<PostTestFiles, Box<dyn std::error::Error>> {
         // Create test directory
         std::fs::create_dir_all(dir)?;
 
@@ -419,7 +415,7 @@ impl FileSystemHelper {
             }
             (
                 opts.name.as_deref().unwrap_or("test-app"),
-                opts.version.as_deref().unwrap_or("1.0.0")
+                opts.version.as_deref().unwrap_or("1.0.0"),
             )
         } else {
             ("test-app", "1.0.0")

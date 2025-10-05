@@ -727,14 +727,12 @@ async fn main() -> std::io::Result<()> {
 
             // Build the app with middleware applied in proper order
             // Use Condition middleware to optionally enable compression
-            let mut app = App::new()
-                .wrap(CustomLogger)
-                .wrap(headers)
-                .wrap(cors)
-                .wrap(actix_web::middleware::Condition::new(
+            let mut app = App::new().wrap(CustomLogger).wrap(headers).wrap(cors).wrap(
+                actix_web::middleware::Condition::new(
                     effective_compression_enabled,
                     Compress::default(),
-                ));
+                ),
+            );
 
             // Register the POST handler FIRST with highest priority
             app = app.service(handle_post);

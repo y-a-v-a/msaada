@@ -7,7 +7,9 @@ use serde_json::json;
 
 #[tokio::test]
 async fn test_port_availability() {
-    let port = NetworkTestHelper::get_available_port_from(3200).await.unwrap();
+    let port = NetworkTestHelper::get_available_port_from(3200)
+        .await
+        .unwrap();
     assert!(port >= 3200);
     assert!(NetworkTestHelper::is_port_available(port).await);
 }
@@ -48,8 +50,9 @@ fn test_file_system_helpers() {
         temp_dir.path(),
         "test.html",
         "Test Title",
-        "<p>Test content</p>"
-    ).unwrap();
+        "<p>Test content</p>",
+    )
+    .unwrap();
 
     let content = fs::read_to_string(&html_path).unwrap();
     assert!(content.contains("Test Title"));
@@ -59,8 +62,9 @@ fn test_file_system_helpers() {
     let json_path = FileSystemHelper::create_json_file(
         temp_dir.path(),
         "test.json",
-        &json!({"test": true, "count": 42})
-    ).unwrap();
+        &json!({"test": true, "count": 42}),
+    )
+    .unwrap();
 
     let json_content = fs::read_to_string(&json_path).unwrap();
     assert!(json_content.contains("\"test\": true"));

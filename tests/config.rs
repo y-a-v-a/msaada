@@ -7,10 +7,10 @@
 
 mod common;
 
-use common::*;
 use common::assertions::ResponseAssertions;
 use common::filesystem::{NowJsonOptions, PackageJsonOptions, ServeJsonOptions};
 use common::server::TestServer;
+use common::*;
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -18,7 +18,9 @@ use serde_json::json;
 /// Migrated from test_serve_json_config() in test_config_files.sh
 #[tokio::test]
 async fn serve_json_config() {
-    let mut server = TestServer::new().await.expect("Failed to start test server");
+    let mut server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
     let _client = TestClient::new();
 
     // Setup configuration test environment
@@ -36,17 +38,13 @@ async fn serve_json_config() {
             json!({"source": "/api/(.*)", "destination": "/api/index.html"}),
             json!({"source": "/old", "destination": "/new.html"}),
         ],
-        redirects: vec![
-            json!({"source": "/redirect-test", "destination": "/", "type": 301}),
-        ],
-        headers: vec![
-            json!({
-                "source": "**/*.json",
-                "headers": [
-                    {"key": "X-Config-Test", "value": "serve.json"}
-                ]
-            }),
-        ],
+        redirects: vec![json!({"source": "/redirect-test", "destination": "/", "type": 301})],
+        headers: vec![json!({
+            "source": "**/*.json",
+            "headers": [
+                {"key": "X-Config-Test", "value": "serve.json"}
+            ]
+        })],
     };
 
     FileSystemHelper::create_serve_json(&server.server_dir, "public", Some(serve_options))
@@ -63,7 +61,10 @@ async fn serve_json_config() {
     let response = client.get(server.url()).await.expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let content = response.text_for_assertions().await.expect("Failed to get response text");
+    let content = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to get response text");
     assert!(
         content.contains("Public Directory"),
         "serve.json public directory setting should work, got: {}",
@@ -71,13 +72,18 @@ async fn serve_json_config() {
     );
 
     // Test custom headers from config
-    let response = client.get(&server.url_for("api/test.json")).await.expect("GET request failed");
+    let response = client
+        .get(&server.url_for("api/test.json"))
+        .await
+        .expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
     let headers = response.headers();
     let config_header = headers.get("x-config-test");
     if let Some(header_value) = config_header {
-        let header_str = header_value.to_str().expect("Header should be valid string");
+        let header_str = header_value
+            .to_str()
+            .expect("Header should be valid string");
         assert!(
             header_str.contains("serve.json"),
             "serve.json custom headers should work, got header: {}",
@@ -89,10 +95,16 @@ async fn serve_json_config() {
     }
 
     // Test that JSON content is served from public directory
-    let response = client.get(&server.url_for("api/test.json")).await.expect("GET request failed");
+    let response = client
+        .get(&server.url_for("api/test.json"))
+        .await
+        .expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let json_data: serde_json::Value = response.json_for_assertions().await.expect("Failed to parse JSON");
+    let json_data: serde_json::Value = response
+        .json_for_assertions()
+        .await
+        .expect("Failed to parse JSON");
     assert_eq!(
         json_data["config"], "serve.json",
         "serve.json directory content should be served correctly"
@@ -107,7 +119,9 @@ async fn serve_json_config() {
 /// Migrated from test_now_json_config() in test_config_files.sh
 #[tokio::test]
 async fn now_json_config() {
-    let mut server = TestServer::new().await.expect("Failed to start test server");
+    let mut server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
     let _client = TestClient::new();
 
     // Setup configuration test environment
@@ -138,7 +152,10 @@ async fn now_json_config() {
     let response = client.get(server.url()).await.expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let content = response.text_for_assertions().await.expect("Failed to get response text");
+    let content = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to get response text");
     assert!(
         content.contains("Dist Directory"),
         "now.json public directory (dist) setting should work, got: {}",
@@ -146,10 +163,16 @@ async fn now_json_config() {
     );
 
     // Test content from dist directory
-    let response = client.get(&server.url_for("api/test.json")).await.expect("GET request failed");
+    let response = client
+        .get(&server.url_for("api/test.json"))
+        .await
+        .expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let json_data: serde_json::Value = response.json_for_assertions().await.expect("Failed to parse JSON");
+    let json_data: serde_json::Value = response
+        .json_for_assertions()
+        .await
+        .expect("Failed to parse JSON");
     assert_eq!(
         json_data["config"], "package.json",
         "now.json directory content should be served correctly"
@@ -164,7 +187,9 @@ async fn now_json_config() {
 /// Migrated from test_package_json_config() in test_config_files.sh
 #[tokio::test]
 async fn package_json_config() {
-    let mut server = TestServer::new().await.expect("Failed to start test server");
+    let mut server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
     let _client = TestClient::new();
 
     // Setup configuration test environment
@@ -194,7 +219,10 @@ async fn package_json_config() {
     let response = client.get(server.url()).await.expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let content = response.text_for_assertions().await.expect("Failed to get response text");
+    let content = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to get response text");
     assert!(
         content.contains("Build Directory"),
         "package.json public directory (build) setting should work, got: {}",
@@ -206,7 +234,9 @@ async fn package_json_config() {
 /// Migrated from test_config_precedence() in test_config_files.sh
 #[tokio::test]
 async fn config_precedence() {
-    let mut server = TestServer::new().await.expect("Failed to start test server");
+    let mut server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
     let _client = TestClient::new();
 
     // Setup configuration test environment
@@ -235,7 +265,10 @@ async fn config_precedence() {
     let response = client.get(server.url()).await.expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let content = response.text_for_assertions().await.expect("Failed to get response text");
+    let content = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to get response text");
     assert!(
         content.contains("Public Directory"),
         "serve.json should take precedence over other configs, got: {}",
@@ -255,7 +288,10 @@ async fn config_precedence() {
     let response = client.get(server.url()).await.expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let content = response.text_for_assertions().await.expect("Failed to get response text");
+    let content = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to get response text");
     assert!(
         content.contains("Dist Directory"),
         "now.json should take precedence over package.json, got: {}",
@@ -263,8 +299,7 @@ async fn config_precedence() {
     );
 
     // Remove now.json and test package.json fallback
-    std::fs::remove_file(server.server_dir.join("now.json"))
-        .expect("Failed to remove now.json");
+    std::fs::remove_file(server.server_dir.join("now.json")).expect("Failed to remove now.json");
 
     server.stop().expect("Failed to stop server");
     let server = TestServer::new_with_options(Some(server.server_dir.clone()), None)
@@ -275,7 +310,10 @@ async fn config_precedence() {
     let response = client.get(server.url()).await.expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let content = response.text_for_assertions().await.expect("Failed to get response text");
+    let content = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to get response text");
     assert!(
         content.contains("Build Directory"),
         "package.json should be used as final fallback, got: {}",
@@ -287,7 +325,9 @@ async fn config_precedence() {
 /// Migrated from test_custom_config_path() in test_config_files.sh
 #[tokio::test]
 async fn custom_config_path() {
-    let mut server = TestServer::new().await.expect("Failed to start test server");
+    let mut server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
 
     // Setup configuration test environment
     let _config_env = FileSystemHelper::setup_config_test_environment(&server.server_dir)
@@ -308,8 +348,8 @@ async fn custom_config_path() {
         .expect("Failed to create custom config");
 
     // Verify the config file was created correctly
-    let _config_content = std::fs::read_to_string(&custom_config_path)
-        .expect("Failed to read custom config");
+    let _config_content =
+        std::fs::read_to_string(&custom_config_path).expect("Failed to read custom config");
 
     // Restart server with custom config path
     server.stop().expect("Failed to stop server");
@@ -328,7 +368,10 @@ async fn custom_config_path() {
     let response = client.get(server.url()).await.expect("GET request failed");
     response.assert_status(StatusCode::OK);
 
-    let content = response.text_for_assertions().await.expect("Failed to get response text");
+    let content = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to get response text");
 
     // Check if static directory content is being served (more flexible check)
     if content.contains("Static Directory") {
@@ -346,7 +389,9 @@ async fn custom_config_path() {
 /// Migrated from test_config_validation() in test_config_files.sh
 #[tokio::test]
 async fn config_validation() {
-    let server = TestServer::new().await.expect("Failed to start test server");
+    let server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
 
     // Setup configuration test environment
     let _config_env = FileSystemHelper::setup_config_test_environment(&server.server_dir)
@@ -401,15 +446,17 @@ async fn config_validation() {
     }
 
     // Test with empty configuration file
-    std::fs::write(server.server_dir.join("serve.json"), "")
-        .expect("Failed to write empty config");
+    std::fs::write(server.server_dir.join("serve.json"), "").expect("Failed to write empty config");
 
     let server_result = TestServer::new_with_options(Some(server.server_dir.clone()), None).await;
 
     match server_result {
         Ok(mut test_server) => {
             let client = TestClient::new();
-            let response = client.get(test_server.url()).await.expect("GET request failed");
+            let response = client
+                .get(test_server.url())
+                .await
+                .expect("GET request failed");
             response.assert_status(StatusCode::OK);
 
             println!("Empty config file handled with defaults");

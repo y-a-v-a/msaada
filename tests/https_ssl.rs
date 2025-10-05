@@ -22,8 +22,8 @@ use serde_json::Value;
 #[tokio::test]
 async fn pem_certificate_support() {
     // Generate PEM cert/key
-    let (cert_file, key_file) = SslTestHelper::create_temp_cert_files()
-        .expect("Failed to create PEM certificates");
+    let (cert_file, key_file) =
+        SslTestHelper::create_temp_cert_files().expect("Failed to create PEM certificates");
 
     // Start HTTPS server
     let server = TestServer::new_https_with_pem(cert_file.path(), key_file.path())
@@ -61,10 +61,7 @@ async fn pem_certificate_support() {
         .send()
         .await
         .expect("TLS handshake failed");
-    assert!(
-        response.status().is_success(),
-        "TLS connection should work"
-    );
+    assert!(response.status().is_success(), "TLS connection should work");
 
     // Sub-test 3: HTTPS headers verification
     let response = client
@@ -139,8 +136,8 @@ async fn pkcs12_certificate_support() {
 #[tokio::test]
 async fn ssl_security_features() {
     // Generate PEM cert
-    let (cert_file, key_file) = SslTestHelper::create_temp_cert_files()
-        .expect("Failed to create certificates");
+    let (cert_file, key_file) =
+        SslTestHelper::create_temp_cert_files().expect("Failed to create certificates");
 
     // Start HTTPS server
     let server = TestServer::new_https_with_pem(cert_file.path(), key_file.path())
@@ -158,10 +155,7 @@ async fn ssl_security_features() {
         .send()
         .await
         .expect("TLS connection failed");
-    assert!(
-        response.status().is_success(),
-        "TLS connection should work"
-    );
+    assert!(response.status().is_success(), "TLS connection should work");
 
     // Sub-test 2: Secure cipher negotiated (simplified - connection success implies secure cipher)
     // Note: Deep TLS introspection could be added later with rustls connection metadata
@@ -178,10 +172,7 @@ async fn ssl_security_features() {
         .expect("Failed to create HTTP client");
 
     let result = http_client.get(&http_url).send().await;
-    assert!(
-        result.is_err(),
-        "HTTP request on HTTPS port should fail"
-    );
+    assert!(result.is_err(), "HTTP request on HTTPS port should fail");
 }
 
 /// Test SSL error handling
@@ -214,8 +205,8 @@ async fn ssl_error_handling() {
     );
 
     // Sub-test 3: Wrong PKCS12 passphrase
-    let (p12_file, _correct_pass) = SslTestHelper::create_temp_pkcs12_files("correctpass")
-        .expect("Failed to create PKCS12");
+    let (p12_file, _correct_pass) =
+        SslTestHelper::create_temp_pkcs12_files("correctpass").expect("Failed to create PKCS12");
 
     // Create wrong passphrase file
     let mut wrong_pass_file = tempfile::NamedTempFile::new().expect("Failed to create temp file");

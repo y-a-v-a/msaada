@@ -5,9 +5,9 @@
 
 mod common;
 
-use common::*;
 use common::assertions::ResponseAssertions;
 use common::server::TestServer;
+use common::*;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -41,7 +41,10 @@ async fn port_availability_check() {
 
     response.assert_status(reqwest::StatusCode::OK);
 
-    let body = response.text_for_assertions().await.expect("Failed to read response body");
+    let body = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to read response body");
     assert!(
         body.contains("Network Test Server"),
         "Response should contain expected content"
@@ -131,10 +134,7 @@ async fn port_boundary_validation() {
         || stderr_zero.contains("error")
         || !output_zero.status.success();
 
-    assert!(
-        has_error_zero,
-        "Port 0 should be rejected or cause error"
-    );
+    assert!(has_error_zero, "Port 0 should be rejected or cause error");
 
     // Sub-test 2: Port 65536 should be rejected (out of u16 range)
     let output_high = Command::new(msaada_bin)
@@ -189,9 +189,7 @@ async fn port_boundary_validation() {
 #[tokio::test]
 async fn network_interface_detection() {
     // Sub-test 1: Server should start and be accessible via localhost
-    let server = TestServer::new()
-        .await
-        .expect("Failed to start server");
+    let server = TestServer::new().await.expect("Failed to start server");
 
     FileSystemHelper::create_html_file(
         &server.server_dir,
@@ -201,11 +199,8 @@ async fn network_interface_detection() {
     )
     .expect("Failed to create index.html");
 
-    std::fs::write(
-        server.server_dir.join("test.txt"),
-        "Network test content",
-    )
-    .expect("Failed to create test.txt");
+    std::fs::write(server.server_dir.join("test.txt"), "Network test content")
+        .expect("Failed to create test.txt");
 
     // Sub-test 2: Server should be accessible via 127.0.0.1
     let client = TestClient::new();
@@ -225,7 +220,10 @@ async fn network_interface_detection() {
 
     response.assert_status(reqwest::StatusCode::OK);
 
-    let body = response.text_for_assertions().await.expect("Failed to read response body");
+    let body = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to read response body");
     assert_eq!(
         body, "Network test content",
         "test.txt should have correct content"
@@ -235,9 +233,7 @@ async fn network_interface_detection() {
 /// Test concurrent connection handling
 #[tokio::test]
 async fn concurrent_connection_handling() {
-    let server = TestServer::new()
-        .await
-        .expect("Failed to start server");
+    let server = TestServer::new().await.expect("Failed to start server");
 
     FileSystemHelper::create_html_file(
         &server.server_dir,
@@ -247,11 +243,8 @@ async fn concurrent_connection_handling() {
     )
     .expect("Failed to create index.html");
 
-    std::fs::write(
-        server.server_dir.join("test.txt"),
-        "Network test content",
-    )
-    .expect("Failed to create test.txt");
+    std::fs::write(server.server_dir.join("test.txt"), "Network test content")
+        .expect("Failed to create test.txt");
 
     // Sub-test 1: Handle multiple concurrent connections
     let url = server.url_for("/test.txt");
@@ -271,10 +264,7 @@ async fn concurrent_connection_handling() {
         }
     }
 
-    assert_eq!(
-        successful, 5,
-        "All 5 concurrent connections should succeed"
-    );
+    assert_eq!(successful, 5, "All 5 concurrent connections should succeed");
 
     // Sub-test 2: Handle rapid sequential requests
     let client = TestClient::new();
@@ -282,9 +272,7 @@ async fn concurrent_connection_handling() {
 
     for i in 0..10 {
         let url_with_query = format!("{}?seq={}", server.url_for("/"), i);
-        let response = client
-            .get(&url_with_query)
-            .await;
+        let response = client.get(&url_with_query).await;
 
         if let Ok(resp) = response {
             if resp.status() == reqwest::StatusCode::OK {
@@ -330,14 +318,15 @@ async fn ipv6_support_test() {
 
     // Sub-test 1: Test IPv6 connectivity via [::1]
     let ipv6_url = format!("http://[::1]:{}/", server.port);
-    let ipv6_result = client
-        .get(&ipv6_url)
-        .await;
+    let ipv6_result = client.get(&ipv6_url).await;
 
     if let Ok(response) = ipv6_result {
         response.assert_status(reqwest::StatusCode::OK);
 
-        let body = response.text_for_assertions().await.expect("Failed to read response");
+        let body = response
+            .text_for_assertions()
+            .await
+            .expect("Failed to read response");
         assert!(
             body.contains("Network Test Server"),
             "IPv6 response should contain expected content"
@@ -373,9 +362,7 @@ fn check_ipv6_availability() -> bool {
         Command::new("ifconfig")
             .arg("lo0")
             .output()
-            .map(|o| {
-                String::from_utf8_lossy(&o.stdout).contains("inet6")
-            })
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("inet6"))
             .unwrap_or(false)
     }
 

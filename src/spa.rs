@@ -107,7 +107,9 @@ pub fn apply_url_rewrites(path: &str, rewrites: &[crate::config::Rewrite]) -> St
         // Wildcard matching: /api/* matches /api/anything
         if rewrite.source.ends_with("/*") {
             let prefix = &rewrite.source[..rewrite.source.len() - 2]; // Remove "/*"
-            if path.starts_with(prefix) && (path.len() == prefix.len() || path[prefix.len()..].starts_with('/')) {
+            if path.starts_with(prefix)
+                && (path.len() == prefix.len() || path[prefix.len()..].starts_with('/'))
+            {
                 return rewrite.destination.clone();
             }
         }
@@ -148,7 +150,6 @@ pub fn apply_trailing_slash(path: &str, add_trailing_slash: bool) -> String {
         path.to_string()
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -425,16 +426,10 @@ mod tests {
         ];
 
         // Empty source doesn't match (new logic requires exact match, wildcard, or regex pattern)
-        assert_eq!(
-            apply_url_rewrites("/test", &malformed_rewrites),
-            "/test"
-        );
+        assert_eq!(apply_url_rewrites("/test", &malformed_rewrites), "/test");
 
         // "/valid" exact matches second rule
-        assert_eq!(
-            apply_url_rewrites("/valid", &malformed_rewrites),
-            ""
-        );
+        assert_eq!(apply_url_rewrites("/valid", &malformed_rewrites), "");
     }
 
     #[test]
@@ -454,7 +449,10 @@ mod tests {
         assert_eq!(apply_url_rewrites("/api", &rewrites), "/api-exact");
 
         // "/api/users" matches the wildcard pattern "/api/*"
-        assert_eq!(apply_url_rewrites("/api/users", &rewrites), "/api-wildcard/");
+        assert_eq!(
+            apply_url_rewrites("/api/users", &rewrites),
+            "/api-wildcard/"
+        );
 
         // Non-matching paths
         assert_eq!(apply_url_rewrites("/apiold", &rewrites), "/apiold"); // No match - not exact and not "/api/*"

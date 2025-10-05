@@ -9,10 +9,10 @@ mod common;
 
 use std::collections::HashMap;
 
-use common::*;
 use common::assertions::ResponseAssertions;
 use common::filesystem::FileSystemHelper;
 use common::server::TestServer;
+use common::*;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
 
@@ -20,7 +20,9 @@ use serde_json::{json, Value};
 /// Migrated from test_json_post() in test_post_enhanced.sh
 #[tokio::test]
 async fn json_post_handling() {
-    let server = TestServer::new().await.expect("Failed to start test server");
+    let server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
 
     // Setup POST test files
     FileSystemHelper::setup_post_test_files(&server.server_dir)
@@ -42,7 +44,9 @@ async fn json_post_handling() {
         .expect("Failed to parse JSON response");
 
     // Note: Server returns path without leading slash
-    let path_value = json_response["path"].as_str().expect("path should be string");
+    let path_value = json_response["path"]
+        .as_str()
+        .expect("path should be string");
     assert!(
         path_value.ends_with("api/simple"),
         "JSON POST path should match, got: {}",
@@ -133,7 +137,9 @@ async fn json_post_handling() {
 /// Migrated from test_form_post() in test_post_enhanced.sh
 #[tokio::test]
 async fn form_post_handling() {
-    let server = TestServer::new().await.expect("Failed to start test server");
+    let server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
 
     // Setup POST test files
     FileSystemHelper::setup_post_test_files(&server.server_dir)
@@ -162,7 +168,9 @@ async fn form_post_handling() {
         json_response["form_data"].is_object(),
         "Form POST should have form_data field"
     );
-    let path_value = json_response["path"].as_str().expect("path should be string");
+    let path_value = json_response["path"]
+        .as_str()
+        .expect("path should be string");
     assert!(
         path_value.ends_with("api/form"),
         "Form POST path should match, got: {}",
@@ -214,7 +222,9 @@ async fn form_post_handling() {
 /// Migrated from test_multipart_upload() in test_post_enhanced.sh
 #[tokio::test]
 async fn multipart_file_upload() {
-    let server = TestServer::new().await.expect("Failed to start test server");
+    let server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
 
     // Setup POST test files
     let test_files = FileSystemHelper::setup_post_test_files(&server.server_dir)
@@ -223,7 +233,8 @@ async fn multipart_file_upload() {
     let client = TestClient::new();
 
     // Test 1: Single file upload
-    let sample_txt_content = std::fs::read(&test_files.sample_txt).expect("Failed to read sample.txt");
+    let sample_txt_content =
+        std::fs::read(&test_files.sample_txt).expect("Failed to read sample.txt");
     let form = reqwest::multipart::Form::new().part(
         "document",
         reqwest::multipart::Part::bytes(sample_txt_content)
@@ -247,14 +258,16 @@ async fn multipart_file_upload() {
         json_response["files"].is_array(),
         "Upload response should have files array"
     );
-    let response_text = serde_json::to_string(&json_response).expect("Failed to serialize response");
+    let response_text =
+        serde_json::to_string(&json_response).expect("Failed to serialize response");
     assert!(
         response_text.contains("sample.txt"),
         "Upload response should contain filename"
     );
 
     // Test 2: Image file upload
-    let sample_png_content = std::fs::read(&test_files.sample_png).expect("Failed to read sample.png");
+    let sample_png_content =
+        std::fs::read(&test_files.sample_png).expect("Failed to read sample.png");
     let form = reqwest::multipart::Form::new().part(
         "image",
         reqwest::multipart::Part::bytes(sample_png_content)
@@ -274,14 +287,16 @@ async fn multipart_file_upload() {
         .await
         .expect("Failed to parse image upload response");
 
-    let response_text = serde_json::to_string(&json_response).expect("Failed to serialize response");
+    let response_text =
+        serde_json::to_string(&json_response).expect("Failed to serialize response");
     assert!(
         response_text.contains("sample.png"),
         "Image upload response should contain filename"
     );
 
     // Test 3: Multipart with form fields and file
-    let sample_json_content = std::fs::read(&test_files.sample_json).expect("Failed to read sample.json");
+    let sample_json_content =
+        std::fs::read(&test_files.sample_json).expect("Failed to read sample.json");
     let form = reqwest::multipart::Form::new()
         .text("name", "test_upload")
         .text("description", "A test file upload")
@@ -310,7 +325,8 @@ async fn multipart_file_upload() {
     );
 
     // Test 4: Large file upload
-    let large_file_content = std::fs::read(&test_files.large_file).expect("Failed to read large_file.bin");
+    let large_file_content =
+        std::fs::read(&test_files.large_file).expect("Failed to read large_file.bin");
     let form = reqwest::multipart::Form::new().part(
         "largefile",
         reqwest::multipart::Part::bytes(large_file_content)
@@ -330,7 +346,8 @@ async fn multipart_file_upload() {
         .await
         .expect("Failed to parse large file response");
 
-    let response_text = serde_json::to_string(&json_response).expect("Failed to serialize response");
+    let response_text =
+        serde_json::to_string(&json_response).expect("Failed to serialize response");
     assert!(
         response_text.contains("large_file.bin"),
         "Large file upload response should contain filename"
@@ -341,7 +358,9 @@ async fn multipart_file_upload() {
 /// Migrated from test_text_post() in test_post_enhanced.sh
 #[tokio::test]
 async fn text_post_handling() {
-    let server = TestServer::new().await.expect("Failed to start test server");
+    let server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
 
     // Setup POST test files
     FileSystemHelper::setup_post_test_files(&server.server_dir)
@@ -412,7 +431,9 @@ async fn text_post_handling() {
 /// Migrated from test_binary_post() in test_post_enhanced.sh
 #[tokio::test]
 async fn binary_post_handling() {
-    let server = TestServer::new().await.expect("Failed to start test server");
+    let server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
 
     // Setup POST test files
     let test_files = FileSystemHelper::setup_post_test_files(&server.server_dir)
@@ -481,7 +502,9 @@ async fn binary_post_handling() {
 /// Migrated from test_response_format() in test_post_enhanced.sh
 #[tokio::test]
 async fn post_response_format() {
-    let server = TestServer::new().await.expect("Failed to start test server");
+    let server = TestServer::new()
+        .await
+        .expect("Failed to start test server");
 
     // Setup POST test files
     FileSystemHelper::setup_post_test_files(&server.server_dir)
@@ -510,7 +533,9 @@ async fn post_response_format() {
         json_response["content_type"].is_string(),
         "Response should have content_type field"
     );
-    let path_value = json_response["path"].as_str().expect("path should be string");
+    let path_value = json_response["path"]
+        .as_str()
+        .expect("path should be string");
     assert!(
         path_value.ends_with("api/test-json"),
         "Path field should match request path, got: {}",
@@ -540,7 +565,9 @@ async fn post_response_format() {
         json_response["content_type"].is_string(),
         "Form response should have content_type field"
     );
-    let path_value = json_response["path"].as_str().expect("path should be string");
+    let path_value = json_response["path"]
+        .as_str()
+        .expect("path should be string");
     assert!(
         path_value.ends_with("api/test-form"),
         "Path field should match request path, got: {}",
@@ -568,7 +595,9 @@ async fn post_response_format() {
         json_response["content_type"].is_string(),
         "Text response should have content_type field"
     );
-    let path_value = json_response["path"].as_str().expect("path should be string");
+    let path_value = json_response["path"]
+        .as_str()
+        .expect("path should be string");
     assert!(
         path_value.ends_with("api/test-text"),
         "Path field should match request path, got: {}",
