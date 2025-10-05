@@ -178,7 +178,13 @@ impl ConfigLoader {
 
             log::info!("Loading configuration from: {}", config_path.display());
 
-            match file_name.as_str() {
+            // Extract just the filename for matching (handles both relative and absolute paths)
+            let config_filename = config_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+
+            match config_filename {
                 "serve.json" => {
                     config = serde_json::from_str(&contents)
                         .map_err(|e| ConfigError::ParseError(format!("serve.json: {}", e)))?;
@@ -270,7 +276,8 @@ impl ConfigLoader {
             let public_path = if Path::new(public_dir).is_absolute() {
                 PathBuf::from(public_dir)
             } else {
-                self.current_dir.join(public_dir)
+                // Public directory should be relative to serve_dir, not current_dir
+                self.serve_dir.join(public_dir)
             };
 
             if !public_path.exists() {

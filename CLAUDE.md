@@ -181,7 +181,9 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.html" }
+    { "source": "/api/(.*)", "destination": "/api/$1.html" },
+    { "source": "/user/:id", "destination": "/users/:id.html" },
+    { "source": "/images/*.(jpg|png|gif)", "destination": "/assets/$1.$2" }
   ],
   "headers": [
     {
@@ -195,6 +197,112 @@
   "etag": true,
   "symlinks": false,
   "compress": true
+}
+```
+
+### URL Rewrites
+
+msaada supports powerful URL rewriting with multiple pattern styles, similar to Vercel's serve-handler:
+
+#### Static Rewrites
+```json
+{
+  "rewrites": [
+    { "source": "/about", "destination": "/about.html" }
+  ]
+}
+```
+
+#### Capture Group Substitution (Regex Style)
+Use `(.*)` in source and `$1`, `$2`, etc. in destination:
+```json
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1.html" },
+    { "source": "/blog/(.*)/(.*)", "destination": "/posts/$1-$2.html" }
+  ]
+}
+```
+
+#### Named Parameters (path-to-regexp Style)
+Use `:paramName` syntax for cleaner, more readable routes:
+```json
+{
+  "rewrites": [
+    { "source": "/user/:id", "destination": "/users/:id.html" },
+    { "source": "/post/:year/:slug", "destination": "/content/:year-:slug.html" }
+  ]
+}
+```
+
+#### Optional Parameters
+Use `{/:param}` for optional segments:
+```json
+{
+  "rewrites": [
+    { "source": "/products{/:category}", "destination": "/shop/:category.html" }
+  ]
+}
+```
+Matches both `/products` and `/products/electronics`.
+
+#### Glob Patterns
+Use wildcards for flexible matching:
+```json
+{
+  "rewrites": [
+    { "source": "/img/*.jpg", "destination": "/images/$1.jpg.html" },
+    { "source": "/api/**/users", "destination": "/api/$1/users.html" },
+    { "source": "/files/?.txt", "destination": "/documents/$1.txt" }
+  ]
+}
+```
+
+- `*` - Matches any characters within a single path segment
+- `**` - Matches across multiple path segments
+- `?` - Matches exactly one character
+
+#### Brace Expansion
+Use `{option1,option2}` for alternative matches:
+```json
+{
+  "rewrites": [
+    { "source": "/images/*.(jpg|png|gif)", "destination": "/assets/$1.$2" }
+  ]
+}
+```
+
+#### Rewrite Precedence
+Rewrites are evaluated in order. The first matching rule wins:
+```json
+{
+  "rewrites": [
+    { "source": "/api/special", "destination": "/special.html" },
+    { "source": "/api/(.*)", "destination": "/api/$1.html" },
+    { "source": "**", "destination": "/index.html" }
+  ]
+}
+```
+
+#### Complete Example
+```json
+{
+  "rewrites": [
+    // Named parameters for user profiles
+    { "source": "/user/:username", "destination": "/users/:username.html" },
+
+    // Capture groups for API versioning
+    { "source": "/api/v(.*)/(.*)/(.*)", "destination": "/api/v$1/$2/$3.json" },
+
+    // Glob patterns for image routing
+    { "source": "/img/**/*.{jpg,png,gif}", "destination": "/assets/images/$1.$2" },
+
+    // Optional category parameter
+    { "source": "/shop{/:category}", "destination": "/products/:category.html" },
+
+    // Static rewrites for legacy URLs
+    { "source": "/old-path", "destination": "/new-path.html" }
+  ]
 }
 ```
 

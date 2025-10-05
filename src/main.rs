@@ -391,20 +391,13 @@ async fn serve_file_with_rewrites(
     symlinks_enabled: bool,
 ) -> Result<actix_files::NamedFile, Error> {
     let mut path = req.path().to_string();
-    eprintln!("serve_file_with_rewrites called for path: {}", path);
 
     // Apply URL rewrites if configured
     if let Some(ref rewrite_rules) = rewrites {
-        eprintln!("Checking {} rewrite rules...", rewrite_rules.len());
         if let Some(destination) = rewrite::match_rewrite(&path, rewrite_rules) {
-            eprintln!("Rewrite matched: {} -> {}", path, destination);
             log::debug!("Rewrite matched: {} -> {}", path, destination);
             path = destination;
-        } else {
-            eprintln!("No rewrite match for: {}", path);
         }
-    } else {
-        eprintln!("No rewrite rules configured");
     }
 
     // Remove leading slash and resolve to file path
