@@ -714,8 +714,8 @@ async fn main() -> std::io::Result<()> {
         move || {
             // Create custom headers middleware
             let headers = DefaultHeaders::new()
+                .add(("Server", PKG_NAME))
                 .add(("X-Server", SERVER_SIGNATURE))
-                .add(("X-Powered-By", PKG_NAME))
                 .add(("X-Version", PKG_VERSION));
 
             // Setup CORS middleware (conditionally configured)
