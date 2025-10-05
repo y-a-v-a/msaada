@@ -52,12 +52,27 @@ pub async fn simple_spa_handler(
     };
     let processed_path = apply_trailing_slash(&processed_path, trailing_slash);
 
-    // Use the should_use_spa_fallback function to determine if we should handle this route
-    if !should_use_spa_fallback(&processed_path) {
+    // For root path, always try to serve index.html
+    if processed_path == "/" || processed_path.is_empty() {
+        let index_path = directory.join("index.html");
+        if index_path.exists() {
+            match NamedFile::open(&index_path) {
+                Ok(file) => {
+                    let response = file.into_response(&req);
+                    return Ok(response);
+                }
+                Err(_) => return Ok(HttpResponse::NotFound().finish()),
+            }
+        }
+    }
+
+    // For static assets (files with extensions), let the file handler deal with them
+    // by returning 404, which will cause actix to try other routes
+    if path.contains('.') && !should_use_spa_fallback(&processed_path) {
         return Ok(HttpResponse::NotFound().finish());
     }
 
-    // Serve index.html for SPA routes
+    // For all other routes (client-side routing), fallback to index.html
     let index_path = directory.join("index.html");
 
     if index_path.exists() {
