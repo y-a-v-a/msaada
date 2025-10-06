@@ -6,8 +6,7 @@
 mod common;
 
 use common::assertions::ResponseAssertions;
-use common::server::TestServer;
-use common::*;
+use common::prelude::*;
 use reqwest::StatusCode;
 use std::path::Path;
 

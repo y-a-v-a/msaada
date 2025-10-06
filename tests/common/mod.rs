@@ -3,9 +3,6 @@
 //! This module provides shared functionality for testing the msaada HTTP server,
 //! organized into focused sub-modules for better maintainability.
 
-#![allow(dead_code)] // Test utilities will be used by integration tests
-#![allow(unused_imports)] // Some re-exports may not be used in all test modules
-
 // Sub-modules
 pub mod assertions;
 pub mod client;
@@ -14,18 +11,22 @@ pub mod network;
 pub mod server;
 pub mod ssl;
 
-// Re-export commonly used types and functions for convenience
-pub use client::TestClient;
-pub use filesystem::{FileSystemHelper, TestStructure};
-pub use network::NetworkTestHelper;
-pub use ssl::SslTestHelper;
-
-// Re-export external types that are commonly used in tests
-pub use serde_json::json;
+/// Shared imports for the majority of integration tests.
+///
+/// Pulling in this prelude keeps call sites concise while allowing us to prune or
+/// extend the underlying helpers without exposing the entire module tree.
+pub mod prelude {
+    pub use super::client::TestClient;
+    pub use super::filesystem::{FileSystemHelper, TestStructure};
+    pub use super::network::NetworkTestHelper;
+    pub use super::server::TestServer;
+    pub use super::ssl::SslTestHelper;
+    pub use serde_json::json;
+}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::prelude::{json, NetworkTestHelper, SslTestHelper, TestStructure};
 
     #[tokio::test]
     async fn test_port_availability() {

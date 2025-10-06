@@ -9,8 +9,7 @@ mod common;
 
 use common::assertions::ResponseAssertions;
 use common::filesystem::{NowJsonOptions, PackageJsonOptions, ServeJsonOptions};
-use common::server::TestServer;
-use common::*;
+use common::prelude::*;
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -18,13 +17,10 @@ use serde_json::json;
 /// Migrated from test_serve_json_config() in test_config_files.sh
 #[tokio::test]
 async fn serve_json_config() {
-    let mut server = TestServer::new()
-        .await
-        .expect("Failed to start test server");
-    let _client = TestClient::new();
+    let persistent_dir = tempfile::tempdir().expect("Failed to create persistent server dir");
+    let server_dir_path = persistent_dir.path().to_path_buf();
 
-    // Setup configuration test environment
-    let _config_env = FileSystemHelper::setup_config_test_environment(&server.server_dir)
+    let _config_env = FileSystemHelper::setup_config_test_environment(&server_dir_path)
         .expect("Failed to setup config test environment");
 
     // Create serve.json with comprehensive configuration
@@ -47,12 +43,10 @@ async fn serve_json_config() {
         })],
     };
 
-    FileSystemHelper::create_serve_json(&server.server_dir, "public", Some(serve_options))
+    FileSystemHelper::create_serve_json(&server_dir_path, "public", Some(serve_options))
         .expect("Failed to create serve.json");
 
-    // Restart server to pick up configuration
-    server.stop().expect("Failed to stop server");
-    let server = TestServer::new_with_options(Some(server.server_dir.clone()), None)
+    let server = TestServer::new_with_options(Some(server_dir_path.clone()), None)
         .await
         .expect("Failed to restart server with config");
     let client = TestClient::new();
@@ -119,13 +113,10 @@ async fn serve_json_config() {
 /// Migrated from test_now_json_config() in test_config_files.sh
 #[tokio::test]
 async fn now_json_config() {
-    let mut server = TestServer::new()
-        .await
-        .expect("Failed to start test server");
-    let _client = TestClient::new();
+    let persistent_dir = tempfile::tempdir().expect("Failed to create persistent server dir");
+    let server_dir_path = persistent_dir.path().to_path_buf();
 
-    // Setup configuration test environment
-    let _config_env = FileSystemHelper::setup_config_test_environment(&server.server_dir)
+    let _config_env = FileSystemHelper::setup_config_test_environment(&server_dir_path)
         .expect("Failed to setup config test environment");
 
     // Create now.json with legacy static configuration
@@ -138,12 +129,10 @@ async fn now_json_config() {
         symlinks: Some(true),
     };
 
-    FileSystemHelper::create_now_json(&server.server_dir, "dist", Some(now_options))
+    FileSystemHelper::create_now_json(&server_dir_path, "dist", Some(now_options))
         .expect("Failed to create now.json");
 
-    // Restart server to pick up configuration
-    server.stop().expect("Failed to stop server");
-    let server = TestServer::new_with_options(Some(server.server_dir.clone()), None)
+    let server = TestServer::new_with_options(Some(server_dir_path.clone()), None)
         .await
         .expect("Failed to restart server with config");
     let client = TestClient::new();
@@ -187,13 +176,10 @@ async fn now_json_config() {
 /// Migrated from test_package_json_config() in test_config_files.sh
 #[tokio::test]
 async fn package_json_config() {
-    let mut server = TestServer::new()
-        .await
-        .expect("Failed to start test server");
-    let _client = TestClient::new();
+    let persistent_dir = tempfile::tempdir().expect("Failed to create persistent server dir");
+    let server_dir_path = persistent_dir.path().to_path_buf();
 
-    // Setup configuration test environment
-    let _config_env = FileSystemHelper::setup_config_test_environment(&server.server_dir)
+    let _config_env = FileSystemHelper::setup_config_test_environment(&server_dir_path)
         .expect("Failed to setup config test environment");
 
     // Create package.json with static section
@@ -205,12 +191,10 @@ async fn package_json_config() {
         etag: Some(true),
     };
 
-    FileSystemHelper::create_package_json(&server.server_dir, "build", Some(package_options))
+    FileSystemHelper::create_package_json(&server_dir_path, "build", Some(package_options))
         .expect("Failed to create package.json");
 
-    // Restart server to pick up configuration
-    server.stop().expect("Failed to stop server");
-    let server = TestServer::new_with_options(Some(server.server_dir.clone()), None)
+    let server = TestServer::new_with_options(Some(server_dir_path.clone()), None)
         .await
         .expect("Failed to restart server with config");
     let client = TestClient::new();
@@ -234,31 +218,22 @@ async fn package_json_config() {
 /// Migrated from test_config_precedence() in test_config_files.sh
 #[tokio::test]
 async fn config_precedence() {
-    let mut server = TestServer::new()
-        .await
-        .expect("Failed to start test server");
-    let _client = TestClient::new();
+    let persistent_dir = tempfile::tempdir().expect("Failed to create persistent server dir");
+    let server_dir_path = persistent_dir.path().to_path_buf();
 
-    // Setup configuration test environment
-    let _config_env = FileSystemHelper::setup_config_test_environment(&server.server_dir)
+    let _config_env = FileSystemHelper::setup_config_test_environment(&server_dir_path)
         .expect("Failed to setup config test environment");
 
-    // Create all three config files with different public directories
-    // serve.json should win (highest precedence)
-    FileSystemHelper::create_serve_json(&server.server_dir, "public", None)
+    FileSystemHelper::create_serve_json(&server_dir_path, "public", None)
         .expect("Failed to create serve.json");
-
-    FileSystemHelper::create_now_json(&server.server_dir, "dist", None)
+    FileSystemHelper::create_now_json(&server_dir_path, "dist", None)
         .expect("Failed to create now.json");
-
-    FileSystemHelper::create_package_json(&server.server_dir, "build", None)
+    FileSystemHelper::create_package_json(&server_dir_path, "build", None)
         .expect("Failed to create package.json");
 
-    // Restart server to pick up configuration
-    server.stop().expect("Failed to stop server");
-    let mut server = TestServer::new_with_options(Some(server.server_dir.clone()), None)
+    let mut server = TestServer::new_with_options(Some(server_dir_path.clone()), None)
         .await
-        .expect("Failed to restart server with config");
+        .expect("Failed to start test server");
     let client = TestClient::new();
 
     // Test that serve.json takes precedence
@@ -279,8 +254,10 @@ async fn config_precedence() {
     std::fs::remove_file(server.server_dir.join("serve.json"))
         .expect("Failed to remove serve.json");
 
+    let server_dir = server_dir_path.clone();
     server.stop().expect("Failed to stop server");
-    let mut server = TestServer::new_with_options(Some(server.server_dir.clone()), None)
+    drop(server);
+    let mut server = TestServer::new_with_options(Some(server_dir), None)
         .await
         .expect("Failed to restart server");
     let client = TestClient::new();
@@ -301,8 +278,10 @@ async fn config_precedence() {
     // Remove now.json and test package.json fallback
     std::fs::remove_file(server.server_dir.join("now.json")).expect("Failed to remove now.json");
 
+    let server_dir = server_dir_path.clone();
     server.stop().expect("Failed to stop server");
-    let server = TestServer::new_with_options(Some(server.server_dir.clone()), None)
+    drop(server);
+    let server = TestServer::new_with_options(Some(server_dir), None)
         .await
         .expect("Failed to restart server");
     let client = TestClient::new();
@@ -325,16 +304,14 @@ async fn config_precedence() {
 /// Migrated from test_custom_config_path() in test_config_files.sh
 #[tokio::test]
 async fn custom_config_path() {
-    let mut server = TestServer::new()
-        .await
-        .expect("Failed to start test server");
+    let persistent_dir = tempfile::tempdir().expect("Failed to create persistent server dir");
+    let server_dir_path = persistent_dir.path().to_path_buf();
 
-    // Setup configuration test environment
-    let _config_env = FileSystemHelper::setup_config_test_environment(&server.server_dir)
+    let _config_env = FileSystemHelper::setup_config_test_environment(&server_dir_path)
         .expect("Failed to setup config test environment");
 
     // Create custom config in subdirectory
-    let config_dir = server.server_dir.join("config");
+    let config_dir = server_dir_path.join("config");
     std::fs::create_dir_all(&config_dir).expect("Failed to create config directory");
 
     let custom_config_path = config_dir.join("custom-serve.json");
@@ -352,9 +329,8 @@ async fn custom_config_path() {
         std::fs::read_to_string(&custom_config_path).expect("Failed to read custom config");
 
     // Restart server with custom config path
-    server.stop().expect("Failed to stop server");
     let server = TestServer::new_with_options(
-        Some(server.server_dir.clone()),
+        Some(server_dir_path.clone()),
         Some(vec![
             "-c".to_string(),
             custom_config_path.to_string_lossy().to_string(),

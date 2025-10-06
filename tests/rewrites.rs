@@ -8,7 +8,7 @@ mod common;
 
 use common::assertions::ResponseAssertions;
 use common::filesystem::{FileSystemHelper, ServeJsonOptions};
-use common::server::TestServer;
+use common::prelude::*;
 use reqwest::StatusCode;
 use serde_json::json;
 use std::fs;

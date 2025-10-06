@@ -2,6 +2,7 @@
 //!
 //! This module provides utilities for generating test certificates and
 //! configuring HTTPS clients for testing SSL functionality.
+#![allow(dead_code)] // SSL helpers are only compiled into HTTPS-oriented integration suites.
 
 use std::time::Duration;
 

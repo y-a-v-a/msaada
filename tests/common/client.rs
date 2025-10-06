@@ -2,6 +2,7 @@
 //!
 //! This module provides the TestClient struct and related functionality for
 //! making HTTP requests during testing.
+#![allow(dead_code)] // Different suites use different client helpers; silence per-module warnings.
 
 use std::collections::HashMap;
 use std::time::Duration;

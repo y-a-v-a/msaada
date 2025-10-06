@@ -2,6 +2,7 @@
 //!
 //! This module provides utilities for creating test files, directories,
 //! and managing file system operations during testing.
+#![allow(dead_code)] // Helpers are shared across suites; individual crates only use subsets.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

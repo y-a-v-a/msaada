@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::*;
+use common::prelude::*;
 use serde_json::json;
 
 #[tokio::test]

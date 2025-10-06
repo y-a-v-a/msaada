@@ -2,6 +2,7 @@
 //!
 //! This module provides traits and helpers for validating HTTP responses
 //! and making assertions in tests.
+#![allow(dead_code)] // Individual integration crates use different assertion subsets.
 
 use reqwest::{Response, StatusCode};
 

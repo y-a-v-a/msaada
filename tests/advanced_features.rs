@@ -11,8 +11,7 @@ use std::fs;
 use std::os::unix;
 
 use common::assertions::ResponseAssertions;
-use common::filesystem::FileSystemHelper;
-use common::server::TestServer;
+use common::prelude::*;
 use reqwest::StatusCode;
 
 /// Test CORS functionality

@@ -11,8 +11,7 @@ use std::collections::HashMap;
 
 use common::assertions::ResponseAssertions;
 use common::filesystem::FileSystemHelper;
-use common::server::TestServer;
-use common::*;
+use common::prelude::*;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
 
