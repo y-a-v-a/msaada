@@ -2,6 +2,7 @@
 //!
 //! This module provides the TestServer struct and related functionality for
 //! managing msaada server instances during testing.
+#![allow(dead_code)] // HTTPS-specific helpers and fields are only touched by select suites.
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -255,16 +256,5 @@ async fn wait_for_https_server_ready(base_url: &str) -> Result<(), Box<dyn std::
 
 /// Get the path to the msaada binary
 fn get_msaada_binary_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Try release build first, then debug build
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
-    let release_path = PathBuf::from(&manifest_dir).join("target/release/msaada");
-    let debug_path = PathBuf::from(&manifest_dir).join("target/debug/msaada");
-
-    if release_path.exists() {
-        Ok(release_path)
-    } else if debug_path.exists() {
-        Ok(debug_path)
-    } else {
-        Err("msaada binary not found. Run 'cargo build' or 'cargo build --release' first.".into())
-    }
+    Ok(PathBuf::from(env!("CARGO_BIN_EXE_msaada")))
 }

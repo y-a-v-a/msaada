@@ -1,4 +1,5 @@
 //! Network testing utilities
+#![allow(dead_code)] // Some helpers are only used by specific integration suites.
 //!
 //! This module provides utilities for port management, network interface
 //! detection, and concurrent connection testing.

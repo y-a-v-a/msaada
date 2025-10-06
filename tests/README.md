@@ -96,6 +96,44 @@ Shared utility modules for all test suites:
 - **assertions.rs** - Response validation trait extensions
 - **client.rs** - Enhanced HTTP client wrappers
 
+##### Module hygiene note
+
+Every integration test crate (`tests/*.rs`) pulls in the shared `common` module via
+`mod common;`. Because each crate is compiled in isolation, the compiler will warn
+about any helper that is not referenced inside that specific crate. The current
+top-level `#![allow(dead_code)]`/`#![allow(unused_imports)]` directives silence those
+warnings globally, but they also mask genuine "unused" diagnostics when we accidentally
+leave a helper behind.
+
+To tighten things up without reintroducing a sea of warnings, plan to:
+
+1. **Split the utilities into focused preludes.** Expose `pub mod prelude` (HTTP,
+   filesystem, SSL, etc.) so that a test can `use common::filesystem_prelude::*;`
+   instead of importing the entire module tree. Only the modules pulled in by a
+   prelude would be compiled, which keeps unrelated helpers out of the crate.
+2. **Trim unused helpers per module.** Review each submodule and move rarely used
+   routines behind feature-specific submodules (e.g. `filesystem::uploads`) so only
+   the POST suite opts-in. Anything that is truly unused should either be deleted or
+   kept under a local `#[allow(dead_code)]` annotation with a short justification.
+3. **Consider promoting `common` to a dev-dependency crate.** Extracting the shared
+   utilities into something like `msaada-test-support` means the compiler will treat
+   public items as part of the crate's API, allowing us to remove the blanket
+   allowances while still catching unused *private* helpers inside that crate.
+
+#### Module hygiene TODO
+
+- [x] Introduce a `common::prelude` module and update integration tests to import it
+  instead of glob-re-exporting the entire utility tree, enabling removal of
+  crate-wide `allow(dead_code)`/`allow(unused_imports)`.
+- [ ] Review each `common::*` submodule for dead code or helpers that should live in
+  feature-specific namespaces, deleting or locally annotating as needed.
+- [ ] Evaluate whether extracting a `msaada-test-support` dev-dependency crate (or a
+  set of feature-focused preludes) would further tighten module boundaries without
+  sacrificing ergonomics.
+
+Once those steps are complete we can drop the crate-wide `allow` attributes and rely
+on the compiler again to flag stale helpers or imports during test builds.
+
 ## Test Directory Structure
 
 ```
@@ -251,7 +289,7 @@ Create a new test file (e.g., `tests/new_category.rs`):
 ```rust
 mod common;
 
-use common::server::TestServer;
+use common::prelude::*;
 use common::assertions::ResponseAssertions;
 
 #[tokio::test]
