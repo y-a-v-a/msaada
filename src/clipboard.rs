@@ -215,7 +215,7 @@ mod tests {
                 println!("Clipboard command not available (expected in CI)")
             }
             Err(ClipboardError::CopyFailed(e)) => {
-                panic!("Unexpected clipboard failure: {}", e)
+                panic!("Unexpected clipboard failure: {e}")
             }
         }
     }

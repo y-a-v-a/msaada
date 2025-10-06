@@ -24,8 +24,13 @@ impl NetworkUtils {
 
     /// Find the next available port starting from the given port
     pub fn find_available_port(host: &str, start_port: u16) -> Option<u16> {
-        // Try up to 100 ports above the start port
-        (start_port..(start_port + 100)).find(|&port| Self::is_port_available(host, port))
+        // Try up to 100 ports above the start port without overflowing u16 bounds
+        let start = u32::from(start_port);
+        let end = (start.saturating_add(100)).min(u32::from(u16::MAX) + 1);
+
+        (start..end)
+            .map(|port| port as u16)
+            .find(|&port| Self::is_port_available(host, port))
     }
 
     /// Get the network IP address for external access
@@ -86,14 +91,30 @@ impl NetworkUtils {
         }
 
         // Port is occupied and switching is allowed
-        match Self::find_available_port(host, requested_port + 1) {
+        let next_port = match requested_port.checked_add(1) {
+            Some(port) => port,
+            None => {
+                return Err(format!(
+                    "Port {} is already in use and no higher ports are available.",
+                    requested_port
+                ));
+            }
+        };
+
+        match Self::find_available_port(host, next_port) {
             Some(available_port) => Ok(available_port),
-            None => Err(format!(
-                "Port {} is occupied and no alternative ports are available in the range {}{}.",
-                requested_port,
-                requested_port + 1,
-                requested_port + 100
-            )),
+            None => {
+                let range_end = (u32::from(next_port)
+                    .saturating_add(99)
+                    .min(u32::from(u16::MAX))) as u16;
+
+                Err(format!(
+                    "Port {} is occupied and no alternative ports are available in the range {}-{}.",
+                    requested_port,
+                    next_port,
+                    range_end
+                ))
+            }
         }
     }
 }
@@ -182,6 +203,29 @@ mod tests {
 
         let new_port = result.unwrap();
         assert!(new_port > bound_port);
+    }
+
+    #[test]
+    fn test_find_available_port_near_upper_bound() {
+        let result = NetworkUtils::find_available_port("127.0.0.1", u16::MAX - 1);
+
+        if let Some(port) = result {
+            assert!(port >= u16::MAX - 1);
+        }
+    }
+
+    #[test]
+    fn test_resolve_port_switching_enabled_at_upper_bound() {
+        // Bind to the maximum port to force overflow handling paths
+        let listener = TcpListener::bind("127.0.0.1:65535").unwrap();
+
+        let result = NetworkUtils::resolve_port("127.0.0.1", 65_535, true);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("no higher ports are available"));
+
+        drop(listener);
     }
 
     #[test]
