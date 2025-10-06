@@ -212,7 +212,7 @@ mod tests {
                 // Setup completed successfully
             }
             Ok(Err(e)) => {
-                panic!("Signal setup failed: {}", e);
+                panic!("Signal setup failed: {e}");
             }
         }
     }

@@ -22,9 +22,11 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::{Component, Path, PathBuf};
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 // Custom HTTP request logging middleware
@@ -304,9 +306,14 @@ async fn handle_post(
 /// Static flag to track if self-test has been run
 static SELF_TEST_RUN: AtomicBool = AtomicBool::new(false);
 
+#[derive(Clone)]
+struct SelfTestConfig {
+    base_url: String,
+}
+
 /// Handler for checking if POST handler is working via self-test
 #[get("/self-test")]
-async fn self_test_endpoint() -> impl Responder {
+async fn self_test_endpoint(config: web::Data<SelfTestConfig>) -> impl Responder {
     // Check if test has been run before
     if SELF_TEST_RUN.load(Ordering::SeqCst) {
         return HttpResponse::Ok().json(json!({
@@ -321,15 +328,16 @@ async fn self_test_endpoint() -> impl Responder {
 
     // Test JSON POST
     let client = awc::Client::new();
+    let base_url = &config.base_url;
     let json_test = client
-        .post("http://localhost:3000/test-json")
+        .post(format!("{}/test-json", base_url))
         .insert_header(("Content-Type", "application/json"))
         .send_json(&json!({"test": "value", "number": 42}))
         .await;
 
     // Test form POST
     let form_test = client
-        .post("http://localhost:3000/test-form")
+        .post(format!("{}/test-form", base_url))
         .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
         .send_body("name=test&value=123")
         .await;
@@ -385,7 +393,7 @@ const SERVER_SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_
 async fn serve_file_with_rewrites(
     req: HttpRequest,
     serve_dir: PathBuf,
-    rewrites: Option<Vec<rewrite::CompiledRewrite>>,
+    rewrites: Option<Arc<[rewrite::CompiledRewrite]>>,
     clean_urls: bool,
     use_etag: bool,
     symlinks_enabled: bool,
@@ -394,82 +402,123 @@ async fn serve_file_with_rewrites(
 
     // Apply URL rewrites if configured
     if let Some(ref rewrite_rules) = rewrites {
-        if let Some(destination) = rewrite::match_rewrite(&path, rewrite_rules) {
+        if let Some(destination) = rewrite::match_rewrite(&path, rewrite_rules.as_ref()) {
             log::debug!("Rewrite matched: {} -> {}", path, destination);
             path = destination;
         }
     }
 
-    // Remove leading slash and resolve to file path
-    let file_path = serve_dir.join(path.trim_start_matches('/'));
+    let canonical_root = serve_dir
+        .canonicalize()
+        .unwrap_or_else(|_| serve_dir.clone());
 
-    // Check for symlinks if they're disabled
-    if !symlinks_enabled {
-        if let Ok(metadata) = file_path.symlink_metadata() {
-            if metadata.file_type().is_symlink() {
-                return Err(actix_web::error::ErrorNotFound("Symlinks are not allowed"));
+    let sanitized_path = match normalize_request_path(path.trim_start_matches('/')) {
+        Some(p) => p,
+        None => return Err(actix_web::error::ErrorForbidden("Invalid path")),
+    };
+
+    let file_path = serve_dir.join(&sanitized_path);
+
+    let try_open = |candidate: &Path| -> Result<actix_files::NamedFile, io::Error> {
+        if !symlinks_enabled {
+            if let Ok(metadata) = candidate.symlink_metadata() {
+                if metadata.file_type().is_symlink() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "Symlinks are not allowed",
+                    ));
+                }
             }
         }
-    }
 
-    // Try to open the file
-    match actix_files::NamedFile::open(&file_path) {
-        Ok(mut file) => {
-            // Configure ETag
-            file = if use_etag {
-                file.use_etag(true).use_last_modified(false)
-            } else {
-                file.use_etag(false).use_last_modified(true)
-            };
-            Ok(file)
+        let mut file = actix_files::NamedFile::open(candidate)?;
+
+        if !symlinks_enabled {
+            if let Ok(resolved) = file.path().canonicalize() {
+                if !resolved.starts_with(&canonical_root) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "Path escapes serve directory",
+                    ));
+                }
+            }
         }
-        Err(_) => {
-            // If file not found and clean URLs enabled, try adding .html extension
+
+        if use_etag {
+            file = file.use_etag(true).use_last_modified(false);
+        } else {
+            file = file.use_etag(false).use_last_modified(true);
+        }
+
+        Ok(file)
+    };
+
+    match try_open(&file_path) {
+        Ok(file) => Ok(file),
+        Err(err) => {
+            if err.kind() == io::ErrorKind::PermissionDenied {
+                return Err(actix_web::error::ErrorForbidden(err));
+            }
+
             if clean_urls && !path.ends_with(".html") && !path.ends_with('/') {
                 let html_path = file_path.with_extension("html");
-                match actix_files::NamedFile::open(&html_path) {
-                    Ok(mut file) => {
-                        file = if use_etag {
-                            file.use_etag(true).use_last_modified(false)
-                        } else {
-                            file.use_etag(false).use_last_modified(true)
-                        };
+                match try_open(&html_path) {
+                    Ok(file) => {
                         log::debug!("Clean URL: served {} as {}", path, html_path.display());
                         Ok(file)
                     }
-                    Err(_) => {
-                        // Try index.html if path is a directory
+                    Err(html_err) => {
+                        if html_err.kind() == io::ErrorKind::PermissionDenied {
+                            return Err(actix_web::error::ErrorForbidden(html_err));
+                        }
+
                         let index_path = file_path.join("index.html");
-                        match actix_files::NamedFile::open(&index_path) {
-                            Ok(mut file) => {
-                                file = if use_etag {
-                                    file.use_etag(true).use_last_modified(false)
+                        match try_open(&index_path) {
+                            Ok(file) => Ok(file),
+                            Err(index_err) => {
+                                if index_err.kind() == io::ErrorKind::PermissionDenied {
+                                    Err(actix_web::error::ErrorForbidden(index_err))
                                 } else {
-                                    file.use_etag(false).use_last_modified(true)
-                                };
-                                Ok(file)
+                                    Err(actix_web::error::ErrorNotFound(index_err))
+                                }
                             }
-                            Err(e) => Err(actix_web::error::ErrorNotFound(e)),
                         }
                     }
                 }
             } else {
-                // Try index.html if path is a directory
                 let index_path = file_path.join("index.html");
-                match actix_files::NamedFile::open(&index_path) {
-                    Ok(mut file) => {
-                        file = if use_etag {
-                            file.use_etag(true).use_last_modified(false)
+                match try_open(&index_path) {
+                    Ok(file) => Ok(file),
+                    Err(index_err) => {
+                        if index_err.kind() == io::ErrorKind::PermissionDenied {
+                            Err(actix_web::error::ErrorForbidden(index_err))
                         } else {
-                            file.use_etag(false).use_last_modified(true)
-                        };
-                        Ok(file)
+                            Err(actix_web::error::ErrorNotFound(index_err))
+                        }
                     }
-                    Err(e) => Err(actix_web::error::ErrorNotFound(e)),
                 }
             }
         }
     }
+}
+
+fn normalize_request_path(path: &str) -> Option<PathBuf> {
+    let mut normalized = PathBuf::new();
+
+    for component in Path::new(path).components() {
+        match component {
+            Component::Prefix(_) => return None,
+            Component::RootDir | Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+            Component::Normal(segment) => normalized.push(segment),
+        }
+    }
+
+    Some(normalized)
 }
 
 #[actix_web::main]
@@ -753,11 +802,6 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    // Setting this to true will increase logging verbosity
-    if std::env::var(key).is_err() {
-        std::env::set_var(key, "msaada=debug,actix_web=debug");
-    }
-
     // Initialize logging
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
@@ -778,12 +822,10 @@ async fn main() -> std::io::Result<()> {
     );
 
     // Copy URL to clipboard if enabled
+    let protocol = if uses_https { "https" } else { "http" };
+
     if !clipboard_disabled {
-        let server_url = format!(
-            "{}://localhost:{}",
-            if uses_https { "https" } else { "http" },
-            actual_port
-        );
+        let server_url = format!("{}://localhost:{}", protocol, actual_port);
         if let Err(e) = clipboard_manager.copy_server_url(&server_url) {
             app_logger.warn(&format!("Could not copy to clipboard: {}", e));
         }
@@ -796,8 +838,15 @@ async fn main() -> std::io::Result<()> {
         ));
     }
 
+    let self_test_data = if test_flag {
+        Some(web::Data::new(SelfTestConfig {
+            base_url: format!("{}://localhost:{}", protocol, actual_port),
+        }))
+    } else {
+        None
+    };
+
     if test_flag {
-        let protocol = if uses_https { "https" } else { "http" };
         app_logger.info(&format!(
             "Self-test endpoint enabled at {}://localhost:{}/self-test",
             protocol, actual_port
@@ -835,25 +884,27 @@ async fn main() -> std::io::Result<()> {
     };
 
     // Compile rewrites with regex patterns
-    let compiled_rewrites = if !configuration.rewrites.is_empty() {
-        match rewrite::compile_rewrites(&configuration.rewrites) {
-            Ok(compiled) => {
-                log::info!("Loaded {} URL rewrites from configuration", compiled.len());
-                Some(compiled)
+    let compiled_rewrites: Option<Arc<[rewrite::CompiledRewrite]>> =
+        if !configuration.rewrites.is_empty() {
+            match rewrite::compile_rewrites(&configuration.rewrites) {
+                Ok(compiled) => {
+                    log::info!("Loaded {} URL rewrites from configuration", compiled.len());
+                    Some(Arc::from(compiled))
+                }
+                Err(e) => {
+                    app_logger.error(&format!("Failed to compile rewrite patterns: {}", e));
+                    exit(1);
+                }
             }
-            Err(e) => {
-                app_logger.error(&format!("Failed to compile rewrite patterns: {}", e));
-                exit(1);
-            }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     let server = HttpServer::new({
         // Clone values that need to be moved into the closure
         let effective_serve_dir = effective_serve_dir.clone();
         let rewrites = compiled_rewrites.clone();
+        let self_test_data = self_test_data.clone();
 
         move || {
             // Create custom headers middleware
@@ -881,7 +932,8 @@ async fn main() -> std::io::Result<()> {
                 .service(handle_post);
 
             // Register self-test endpoint if --test flag is provided
-            if test_flag {
+            if let Some(ref data) = self_test_data {
+                app = app.app_data(data.clone());
                 app = app.service(self_test_endpoint);
             }
 
