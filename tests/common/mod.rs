@@ -15,6 +15,7 @@ pub mod ssl;
 ///
 /// Pulling in this prelude keeps call sites concise while allowing us to prune or
 /// extend the underlying helpers without exposing the entire module tree.
+#[allow(unused_imports)]
 pub mod prelude {
     pub use super::client::TestClient;
     pub use super::filesystem::{FileSystemHelper, TestStructure};

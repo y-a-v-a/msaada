@@ -235,6 +235,7 @@ async fn http_caching() {
 /// Test symlinks support
 /// Migrated from test_symlinks_support() in test_advanced_features.sh
 #[tokio::test]
+#[cfg(unix)]
 async fn symbolic_links() {
     let test_files =
         FileSystemHelper::setup_advanced_test_files(&std::env::temp_dir().join("symlink_test"))
@@ -248,56 +249,65 @@ async fn symbolic_links() {
         .join("symlink_test.txt");
     let target_file = test_files.symlink_target.join("target.txt");
 
-    if unix::fs::symlink(&target_file, &symlink_path).is_ok() {
-        // Sub-test 1: Symlinks blocked by default
-        let server = TestServer::new_with_options(
-            Some(test_files.index_html.parent().unwrap().to_path_buf()),
-            None,
-        )
+    // Pre-cleanup: Remove stale symlink if it exists from previous failed run
+    let _ = fs::remove_file(&symlink_path);
+
+    // Create symlink - fail test explicitly if this fails
+    unix::fs::symlink(&target_file, &symlink_path)
+        .expect("Failed to create symlink - cannot proceed with test");
+
+    // Sub-test 1: Symlinks blocked by default
+    let server = TestServer::new_with_options(
+        Some(test_files.index_html.parent().unwrap().to_path_buf()),
+        None,
+    )
+    .await
+    .expect("Failed to start server");
+
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url_for("/symlink_test.txt"))
+        .send()
         .await
-        .expect("Failed to start server");
+        .expect("GET request failed");
 
-        let client = reqwest::Client::new();
+    assert!(
+        response.status() == StatusCode::FORBIDDEN,
+        "Symlinks should be blocked by default (403 Forbidden), got: {}",
+        response.status()
+    );
 
-        let response = client
-            .get(server.url_for("/symlink_test.txt"))
-            .send()
-            .await
-            .expect("GET request failed");
+    // Explicitly stop first server before starting second
+    drop(server);
 
-        assert!(
-            response.status() == StatusCode::NOT_FOUND,
-            "Symlinks should be blocked by default, got: {}",
-            response.status()
-        );
+    // Sub-test 2: Symlinks followed when enabled
+    let server = TestServer::new_with_options(
+        Some(test_files.index_html.parent().unwrap().to_path_buf()),
+        Some(vec!["--symlinks".to_string()]),
+    )
+    .await
+    .expect("Failed to start server with symlinks");
 
-        // Sub-test 2: Symlinks followed when enabled
-        let server = TestServer::new_with_options(
-            Some(test_files.index_html.parent().unwrap().to_path_buf()),
-            Some(vec!["--symlinks".to_string()]),
-        )
+    let response = client
+        .get(server.url_for("/symlink_test.txt"))
+        .send()
         .await
-        .expect("Failed to start server with symlinks");
+        .expect("GET request failed");
 
-        let response = client
-            .get(server.url_for("/symlink_test.txt"))
-            .send()
-            .await
-            .expect("GET request failed");
+    response.assert_status(StatusCode::OK);
+    let content = response
+        .text_for_assertions()
+        .await
+        .expect("Failed to get response text");
+    assert!(
+        content.contains("target file for symlink"),
+        "Symlink should be followed when enabled"
+    );
 
-        response.assert_status(StatusCode::OK);
-        let content = response
-            .text_for_assertions()
-            .await
-            .expect("Failed to get response text");
-        assert!(
-            content.contains("target file for symlink"),
-            "Symlink should be followed when enabled"
-        );
-
-        // Cleanup
-        let _ = fs::remove_file(&symlink_path);
-    }
+    // Cleanup: Stop server first, then remove symlink
+    drop(server);
+    let _ = fs::remove_file(&symlink_path);
 }
 
 /// Test directory listing
