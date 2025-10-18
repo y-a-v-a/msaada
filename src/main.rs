@@ -410,7 +410,12 @@ async fn serve_file_with_rewrites(
 
     let canonical_root = serve_dir
         .canonicalize()
-        .unwrap_or_else(|_| serve_dir.clone());
+        .unwrap_or_else(|e| {
+            log::warn!("Failed to canonicalize serve_dir {:?}: {}", serve_dir, e);
+            serve_dir.clone()
+        });
+
+    log::debug!("Serve dir: {:?}, canonical: {:?}", serve_dir, canonical_root);
 
     let sanitized_path = match normalize_request_path(path.trim_start_matches('/')) {
         Some(p) => p,
@@ -418,6 +423,7 @@ async fn serve_file_with_rewrites(
     };
 
     let file_path = serve_dir.join(&sanitized_path);
+    log::debug!("Trying to serve file: {:?}", file_path);
 
     let try_open = |candidate: &Path| -> Result<actix_files::NamedFile, io::Error> {
         if !symlinks_enabled {
@@ -666,7 +672,6 @@ async fn main() -> std::io::Result<()> {
 
     let dir_arg = matches.get_one::<String>("directory").unwrap();
     let dir = Path::new(&dir_arg);
-    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let serve_dir = dir.to_path_buf();
 
     let is_path_set = env::set_current_dir(dir);
@@ -681,7 +686,7 @@ async fn main() -> std::io::Result<()> {
 
     // Load configuration
     let custom_config = matches.get_one::<String>("config").map(|s| s.as_str());
-    let config_loader = config::ConfigLoader::new(current_dir.clone(), serve_dir.clone());
+    let config_loader = config::ConfigLoader::new(serve_dir.clone());
     let configuration = match config_loader.load_configuration(custom_config) {
         Ok(config) => config,
         Err(e) => {
@@ -711,8 +716,14 @@ async fn main() -> std::io::Result<()> {
     let effective_compression_enabled = !compression_disabled;
 
     // Use the public directory from configuration if available, otherwise use serve_dir
+    // The config loader should have already resolved paths correctly
     let effective_serve_dir = if let Some(ref public_dir) = configuration.public {
-        PathBuf::from(public_dir)
+        let public_path = PathBuf::from(public_dir);
+        app_logger.info(&format!(
+            "Using public directory from config: {}",
+            public_path.display()
+        ));
+        public_path
     } else {
         serve_dir.clone()
     };
@@ -749,10 +760,10 @@ async fn main() -> std::io::Result<()> {
         None
     };
 
-    // Setup paths for basic web files
-    let index_path = PathBuf::from("index.html");
-    let css_path = PathBuf::from("style.css");
-    let js_path = PathBuf::from("main.js");
+    // Setup paths for basic web files (relative to effective_serve_dir)
+    let index_path = effective_serve_dir.join("index.html");
+    let css_path = effective_serve_dir.join("style.css");
+    let js_path = effective_serve_dir.join("main.js");
 
     // Check if --init flag was provided
     let init_flag = matches.get_flag("init");
@@ -794,7 +805,7 @@ async fn main() -> std::io::Result<()> {
         if !index_path.exists() {
             app_logger.warn(&format!(
                 "index.html not found in {}. The server will run but may not serve a default page.",
-                dir_arg
+                effective_serve_dir.display()
             ));
             app_logger.info(
                 "Tip: Use --init flag to create basic web files (index.html, style.css, main.js).",

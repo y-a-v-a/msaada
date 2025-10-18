@@ -126,16 +126,12 @@ impl From<std::io::Error> for ConfigError {
 }
 
 pub struct ConfigLoader {
-    current_dir: PathBuf,
     serve_dir: PathBuf,
 }
 
 impl ConfigLoader {
-    pub fn new(current_dir: PathBuf, serve_dir: PathBuf) -> Self {
-        Self {
-            current_dir,
-            serve_dir,
-        }
+    pub fn new(serve_dir: PathBuf) -> Self {
+        Self { serve_dir }
     }
 
     pub fn load_configuration(
@@ -240,28 +236,17 @@ impl ConfigLoader {
             break; // Found and loaded a config file, stop looking
         }
 
-        // Resolve the public directory path relative to the serve directory
+        // Resolve the public directory path
         if let Some(ref public_dir) = config.public {
             let public_path = if Path::new(public_dir).is_absolute() {
                 PathBuf::from(public_dir)
             } else {
+                // Relative paths are resolved relative to serve_dir
                 self.serve_dir.join(public_dir)
             };
 
-            // Make it relative to current directory for actix-files
-            let relative_path = public_path
-                .strip_prefix(&self.current_dir)
-                .unwrap_or(&public_path);
-
-            config.public = Some(relative_path.to_string_lossy().to_string());
-        } else {
-            // Default to the serve directory
-            let relative_path = self
-                .serve_dir
-                .strip_prefix(&self.current_dir)
-                .unwrap_or(&self.serve_dir);
-
-            config.public = Some(relative_path.to_string_lossy().to_string());
+            // Store the resolved absolute path
+            config.public = Some(public_path.to_string_lossy().to_string());
         }
 
         // Validate the configuration
@@ -345,7 +330,7 @@ mod tests {
 
         fs::write(serve_dir.join("serve.json"), config_content).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         assert!(config.public.is_some());
@@ -359,7 +344,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let serve_dir = temp_dir.path().to_path_buf();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         // Should load default configuration
@@ -372,7 +357,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let serve_dir = temp_dir.path().to_path_buf();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let result = loader.load_configuration(Some("nonexistent.json"));
 
         assert!(matches!(result, Err(ConfigError::FileNotFound(_))));
@@ -385,7 +370,7 @@ mod tests {
 
         fs::write(serve_dir.join("serve.json"), "{ invalid json }").unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let result = loader.load_configuration(None);
 
         assert!(matches!(result, Err(ConfigError::ParseError(_))));
@@ -416,7 +401,7 @@ mod tests {
         fs::write(serve_dir.join("serve.json"), serve_config).unwrap();
         fs::write(serve_dir.join("package.json"), package_config).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         // serve.json should take precedence
@@ -444,7 +429,7 @@ mod tests {
 
         fs::write(serve_dir.join("now.json"), now_config).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         assert!(config.clean_urls);
@@ -472,7 +457,7 @@ mod tests {
 
         fs::write(serve_dir.join("package.json"), package_config).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         assert!(config.render_single);
@@ -494,7 +479,7 @@ mod tests {
 
         fs::write(serve_dir.join("serve.json"), config_content).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let result = loader.load_configuration(None);
 
         assert!(matches!(result, Err(ConfigError::ValidationError(_))));
@@ -514,7 +499,7 @@ mod tests {
 
         fs::write(serve_dir.join("serve.json"), config_content).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let result = loader.load_configuration(None);
 
         assert!(matches!(result, Err(ConfigError::ValidationError(_))));
@@ -531,7 +516,7 @@ mod tests {
 
         fs::write(serve_dir.join("serve.json"), config_content).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let result = loader.load_configuration(None);
 
         assert!(matches!(result, Err(ConfigError::ValidationError(_))));
@@ -555,7 +540,7 @@ mod tests {
 
         fs::write(serve_dir.join("serve.json"), config_content).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         assert!(config.public.is_some());
@@ -605,7 +590,7 @@ mod tests {
 
         fs::write(serve_dir.join("serve.json"), config_content).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         // Verify all options are loaded correctly
@@ -641,7 +626,7 @@ mod tests {
 
         fs::write(serve_dir.join("now.json"), malformed_config).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         // Should fall back to default configuration
@@ -664,7 +649,7 @@ mod tests {
 
         fs::write(serve_dir.join("serve.json"), config_content).unwrap();
 
-        let loader = ConfigLoader::new(temp_dir.path().to_path_buf(), serve_dir);
+        let loader = ConfigLoader::new(serve_dir);
         let config = loader.load_configuration(None).unwrap();
 
         assert_eq!(config.redirects.len(), 4);
