@@ -404,7 +404,15 @@ async fn serve_file_with_rewrites(
     use_etag: bool,
     symlinks_enabled: bool,
 ) -> Result<actix_files::NamedFile, Error> {
-    let original_path = req.path().to_string();
+    // Get the request path and decode URL-encoded characters (e.g., %20 -> space)
+    let raw_path = req.path();
+    let original_path = match urlencoding::decode(raw_path) {
+        Ok(decoded) => decoded.to_string(),
+        Err(_) => {
+            log::warn!("Failed to decode URL path: {}", raw_path);
+            raw_path.to_string()
+        }
+    };
 
     let canonical_root = serve_dir
         .canonicalize()
@@ -467,6 +475,12 @@ async fn serve_file_with_rewrites(
             Some(p) => p,
             None => return Err(actix_web::error::ErrorForbidden("Invalid path")),
         };
+
+        // Block access to hidden files and directories (except .well-known)
+        if is_hidden_path(&sanitized_path) {
+            log::debug!("Blocked access to hidden path: {:?}", sanitized_path);
+            return Err(actix_web::error::ErrorForbidden("Access to hidden files is not allowed"));
+        }
 
         let file_path = serve_dir.join(&sanitized_path);
         log::debug!("Trying to serve file: {:?}", file_path);
@@ -567,6 +581,22 @@ fn normalize_request_path(path: &str) -> Option<PathBuf> {
     }
 
     Some(normalized)
+}
+
+/// Check if a path contains hidden file/directory components
+/// Hidden files/directories start with '.' (except .well-known for web standards)
+fn is_hidden_path(path: &Path) -> bool {
+    for component in path.components() {
+        if let Component::Normal(segment) = component {
+            if let Some(segment_str) = segment.to_str() {
+                // Allow .well-known directory (used for ACME challenges, security.txt, etc.)
+                if segment_str.starts_with('.') && segment_str != ".well-known" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 #[actix_web::main]
