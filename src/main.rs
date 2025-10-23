@@ -390,6 +390,12 @@ const SERVER_SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_
 
 /// Custom file handler that supports URL rewrites and clean URLs
 /// This replaces the standard Files service to enable proper rewrite support
+///
+/// File precedence order:
+/// 1. Try to serve the requested file directly (actual files take precedence)
+/// 2. If file not found, apply rewrite rules and try the rewritten path
+/// 3. Try clean URLs (add .html extension) if enabled
+/// 4. Finally, try index.html in the directory
 async fn serve_file_with_rewrites(
     req: HttpRequest,
     serve_dir: PathBuf,
@@ -398,15 +404,7 @@ async fn serve_file_with_rewrites(
     use_etag: bool,
     symlinks_enabled: bool,
 ) -> Result<actix_files::NamedFile, Error> {
-    let mut path = req.path().to_string();
-
-    // Apply URL rewrites if configured
-    if let Some(ref rewrite_rules) = rewrites {
-        if let Some(destination) = rewrite::match_rewrite(&path, rewrite_rules.as_ref()) {
-            log::debug!("Rewrite matched: {} -> {}", path, destination);
-            path = destination;
-        }
-    }
+    let original_path = req.path().to_string();
 
     let canonical_root = serve_dir
         .canonicalize()
@@ -416,14 +414,6 @@ async fn serve_file_with_rewrites(
         });
 
     log::debug!("Serve dir: {:?}, canonical: {:?}", serve_dir, canonical_root);
-
-    let sanitized_path = match normalize_request_path(path.trim_start_matches('/')) {
-        Some(p) => p,
-        None => return Err(actix_web::error::ErrorForbidden("Invalid path")),
-    };
-
-    let file_path = serve_dir.join(&sanitized_path);
-    log::debug!("Trying to serve file: {:?}", file_path);
 
     let try_open = |candidate: &Path| -> Result<actix_files::NamedFile, io::Error> {
         // Check if candidate is a directory - directories cannot be served as files
@@ -471,53 +461,93 @@ async fn serve_file_with_rewrites(
         Ok(file)
     };
 
-    match try_open(&file_path) {
-        Ok(file) => Ok(file),
-        Err(err) => {
-            if err.kind() == io::ErrorKind::PermissionDenied {
-                return Err(actix_web::error::ErrorForbidden(err));
-            }
+    // Helper function to try serving a path with fallbacks
+    let try_serve_path = |path: &str| -> Result<actix_files::NamedFile, Error> {
+        let sanitized_path = match normalize_request_path(path.trim_start_matches('/')) {
+            Some(p) => p,
+            None => return Err(actix_web::error::ErrorForbidden("Invalid path")),
+        };
 
-            if clean_urls && !path.ends_with(".html") && !path.ends_with('/') {
-                let html_path = file_path.with_extension("html");
-                match try_open(&html_path) {
-                    Ok(file) => {
-                        log::debug!("Clean URL: served {} as {}", path, html_path.display());
-                        Ok(file)
-                    }
-                    Err(html_err) => {
-                        if html_err.kind() == io::ErrorKind::PermissionDenied {
-                            return Err(actix_web::error::ErrorForbidden(html_err));
+        let file_path = serve_dir.join(&sanitized_path);
+        log::debug!("Trying to serve file: {:?}", file_path);
+
+        match try_open(&file_path) {
+            Ok(file) => Ok(file),
+            Err(err) => {
+                if err.kind() == io::ErrorKind::PermissionDenied {
+                    return Err(actix_web::error::ErrorForbidden(err));
+                }
+
+                if clean_urls && !path.ends_with(".html") && !path.ends_with('/') {
+                    let html_path = file_path.with_extension("html");
+                    match try_open(&html_path) {
+                        Ok(file) => {
+                            log::debug!("Clean URL: served {} as {}", path, html_path.display());
+                            Ok(file)
                         }
+                        Err(html_err) => {
+                            if html_err.kind() == io::ErrorKind::PermissionDenied {
+                                return Err(actix_web::error::ErrorForbidden(html_err));
+                            }
 
-                        let index_path = file_path.join("index.html");
-                        match try_open(&index_path) {
-                            Ok(file) => Ok(file),
-                            Err(index_err) => {
-                                if index_err.kind() == io::ErrorKind::PermissionDenied {
-                                    Err(actix_web::error::ErrorForbidden(index_err))
-                                } else {
-                                    Err(actix_web::error::ErrorNotFound(index_err))
+                            let index_path = file_path.join("index.html");
+                            match try_open(&index_path) {
+                                Ok(file) => Ok(file),
+                                Err(index_err) => {
+                                    if index_err.kind() == io::ErrorKind::PermissionDenied {
+                                        Err(actix_web::error::ErrorForbidden(index_err))
+                                    } else {
+                                        Err(actix_web::error::ErrorNotFound(index_err))
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            } else {
-                let index_path = file_path.join("index.html");
-                match try_open(&index_path) {
-                    Ok(file) => Ok(file),
-                    Err(index_err) => {
-                        if index_err.kind() == io::ErrorKind::PermissionDenied {
-                            Err(actix_web::error::ErrorForbidden(index_err))
-                        } else {
-                            Err(actix_web::error::ErrorNotFound(index_err))
+                } else {
+                    let index_path = file_path.join("index.html");
+                    match try_open(&index_path) {
+                        Ok(file) => Ok(file),
+                        Err(index_err) => {
+                            if index_err.kind() == io::ErrorKind::PermissionDenied {
+                                Err(actix_web::error::ErrorForbidden(index_err))
+                            } else {
+                                Err(actix_web::error::ErrorNotFound(index_err))
+                            }
                         }
                     }
                 }
             }
         }
+    };
+
+    // Step 1: Try to serve the original path directly (files take precedence over rewrites)
+    match try_serve_path(&original_path) {
+        Ok(file) => return Ok(file),
+        Err(err) => {
+            // If it's a permission error, return immediately
+            if err.as_response_error().status_code() == actix_web::http::StatusCode::FORBIDDEN {
+                return Err(err);
+            }
+            // Otherwise, continue to try rewrites
+        }
     }
+
+    // Step 2: If original path not found, try applying rewrites
+    if let Some(ref rewrite_rules) = rewrites {
+        if let Some(rewritten_path) = rewrite::match_rewrite(&original_path, rewrite_rules.as_ref()) {
+            log::debug!("Rewrite matched: {} -> {}", original_path, rewritten_path);
+            match try_serve_path(&rewritten_path) {
+                Ok(file) => return Ok(file),
+                Err(err) => {
+                    // Return the error from the rewritten path
+                    return Err(err);
+                }
+            }
+        }
+    }
+
+    // Step 3: No file found and no rewrites matched, return 404
+    Err(actix_web::error::ErrorNotFound("File not found"))
 }
 
 fn normalize_request_path(path: &str) -> Option<PathBuf> {
@@ -985,20 +1015,37 @@ async fn main() -> std::io::Result<()> {
             // This is acceptable for a development server
 
             // Add SPA fallback handler if single page app mode is enabled
-            // Otherwise use the file handler as default service
+            // The SPA handler should try the file handler first, then fall back to index.html
             if effective_single_page_app {
-                // Create a configurable SPA handler that uses URL processing functions
-                let spa_handler = {
+                // Create a combined handler that tries files first, then SPA fallback
+                let combined_handler = {
                     let serve_dir = effective_serve_dir.clone();
+                    let file_handler = file_handler.clone();
                     let clean_urls = effective_clean_urls;
                     let trailing_slash = effective_trailing_slash;
 
                     move |req: HttpRequest| {
-                        spa::simple_spa_handler(req, serve_dir.clone(), clean_urls, trailing_slash)
+                        let serve_dir = serve_dir.clone();
+                        let file_handler = file_handler.clone();
+
+                        async move {
+                            // Try to serve the file first
+                            match file_handler(req.clone()).await {
+                                Ok(file) => {
+                                    // Convert NamedFile to HttpResponse
+                                    let response = file.into_response(&req);
+                                    Ok(response)
+                                },
+                                Err(_) => {
+                                    // File not found, fall back to SPA handler
+                                    spa::simple_spa_handler(req, serve_dir, clean_urls, trailing_slash).await
+                                }
+                            }
+                        }
                     }
                 };
 
-                app = app.default_service(web::route().to(spa_handler));
+                app = app.default_service(web::route().to(combined_handler));
             } else {
                 // Use file handler as default service (catches all unmatched routes)
                 app = app.default_service(web::get().to(file_handler));
