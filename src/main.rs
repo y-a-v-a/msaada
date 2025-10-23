@@ -426,6 +426,14 @@ async fn serve_file_with_rewrites(
     log::debug!("Trying to serve file: {:?}", file_path);
 
     let try_open = |candidate: &Path| -> Result<actix_files::NamedFile, io::Error> {
+        // Check if candidate is a directory - directories cannot be served as files
+        if candidate.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::IsADirectory,
+                "Cannot serve directory as file",
+            ));
+        }
+
         if !symlinks_enabled {
             if let Ok(metadata) = candidate.symlink_metadata() {
                 if metadata.file_type().is_symlink() {
@@ -455,6 +463,10 @@ async fn serve_file_with_rewrites(
         } else {
             file = file.use_etag(false).use_last_modified(true);
         }
+
+        // Disable compression middleware for this file to prevent Content-Length mismatch
+        // The Compress middleware can cause issues with NamedFile responses
+        file = file.set_content_encoding(actix_web::http::header::ContentEncoding::Identity);
 
         Ok(file)
     };
