@@ -59,7 +59,10 @@ async fn static_rewrites() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test rewrite: /about -> /about.html
     let response = client
@@ -146,7 +149,10 @@ async fn capture_group_rewrites() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test: /api/users -> /api/users.html
     let response = client
@@ -233,7 +239,10 @@ async fn named_parameter_rewrites() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test: /user/123 -> /users/123.html
     let response = client
@@ -319,7 +328,10 @@ async fn optional_parameter_rewrites() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test: /products/electronics -> /products/electronics.html
     let response = client
@@ -389,7 +401,10 @@ async fn glob_pattern_rewrites() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test: /img/photo.jpg -> /images/photo.jpg.html
     let response = client
@@ -482,7 +497,10 @@ async fn brace_expansion_rewrites() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test: /images/image.jpg -> /assets/image.jpg.html
     let response = client
@@ -586,7 +604,10 @@ async fn spa_mode_with_rewrites() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test: API rewrite should work
     let response = client
@@ -671,7 +692,10 @@ async fn rewrite_precedence() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test: /test/specific should match the first (more specific) rule
     let response = client
@@ -748,7 +772,10 @@ async fn mixed_rewrite_syntax() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Test: /posts/2024/hello -> /content/2024-hello.html
     let response = client

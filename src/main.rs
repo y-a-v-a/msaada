@@ -414,14 +414,16 @@ async fn serve_file_with_rewrites(
         }
     };
 
-    let canonical_root = serve_dir
-        .canonicalize()
-        .unwrap_or_else(|e| {
-            log::warn!("Failed to canonicalize serve_dir {:?}: {}", serve_dir, e);
-            serve_dir.clone()
-        });
+    let canonical_root = serve_dir.canonicalize().unwrap_or_else(|e| {
+        log::warn!("Failed to canonicalize serve_dir {:?}: {}", serve_dir, e);
+        serve_dir.clone()
+    });
 
-    log::debug!("Serve dir: {:?}, canonical: {:?}", serve_dir, canonical_root);
+    log::debug!(
+        "Serve dir: {:?}, canonical: {:?}",
+        serve_dir,
+        canonical_root
+    );
 
     let try_open = |candidate: &Path| -> Result<actix_files::NamedFile, io::Error> {
         // Check if candidate is a directory - directories cannot be served as files
@@ -479,7 +481,9 @@ async fn serve_file_with_rewrites(
         // Block access to hidden files and directories (except .well-known)
         if is_hidden_path(&sanitized_path) {
             log::debug!("Blocked access to hidden path: {:?}", sanitized_path);
-            return Err(actix_web::error::ErrorForbidden("Access to hidden files is not allowed"));
+            return Err(actix_web::error::ErrorForbidden(
+                "Access to hidden files is not allowed",
+            ));
         }
 
         let file_path = serve_dir.join(&sanitized_path);
@@ -548,7 +552,8 @@ async fn serve_file_with_rewrites(
 
     // Step 2: If original path not found, try applying rewrites
     if let Some(ref rewrite_rules) = rewrites {
-        if let Some(rewritten_path) = rewrite::match_rewrite(&original_path, rewrite_rules.as_ref()) {
+        if let Some(rewritten_path) = rewrite::match_rewrite(&original_path, rewrite_rules.as_ref())
+        {
             log::debug!("Rewrite matched: {} -> {}", original_path, rewritten_path);
             match try_serve_path(&rewritten_path) {
                 Ok(file) => return Ok(file),
@@ -1065,10 +1070,16 @@ async fn main() -> std::io::Result<()> {
                                     // Convert NamedFile to HttpResponse
                                     let response = file.into_response(&req);
                                     Ok(response)
-                                },
+                                }
                                 Err(_) => {
                                     // File not found, fall back to SPA handler
-                                    spa::simple_spa_handler(req, serve_dir, clean_urls, trailing_slash).await
+                                    spa::simple_spa_handler(
+                                        req,
+                                        serve_dir,
+                                        clean_urls,
+                                        trailing_slash,
+                                    )
+                                    .await
                                 }
                             }
                         }

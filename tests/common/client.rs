@@ -20,6 +20,7 @@ impl TestClient {
     pub fn new() -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
+            .no_proxy()
             .build()
             .expect("Failed to create HTTP client");
 
