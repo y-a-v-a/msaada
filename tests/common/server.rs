@@ -219,7 +219,7 @@ async fn get_available_port() -> Result<u16, Box<dyn std::error::Error>> {
 
 /// Wait for server to be ready by polling the health endpoint
 async fn wait_for_server_ready(base_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::new();
+    let client = Client::builder().no_proxy().build()?;
     let max_attempts = 50;
     let delay = Duration::from_millis(100);
 
@@ -237,6 +237,7 @@ async fn wait_for_server_ready(base_url: &str) -> Result<(), Box<dyn std::error:
 async fn wait_for_https_server_ready(base_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Use client that accepts self-signed certificates
     let client = Client::builder()
+        .no_proxy()
         .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(5))
         .build()?;

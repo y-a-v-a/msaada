@@ -25,7 +25,10 @@ async fn cors_support() {
     FileSystemHelper::setup_advanced_test_files(&server.server_dir)
         .expect("Failed to setup advanced test files");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Sub-test 1: CORS headers present when Origin header is sent
     let response = client
@@ -69,7 +72,10 @@ async fn gzip_compression() {
     FileSystemHelper::setup_advanced_test_files(&server.server_dir)
         .expect("Failed to setup advanced test files");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     let response = client
         .get(server.url())
@@ -131,7 +137,10 @@ async fn single_page_application_mode() {
     .await
     .expect("Failed to start server in SPA mode");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Sub-test 1: Existing files served correctly
     let response = client
@@ -194,7 +203,10 @@ async fn http_caching() {
     FileSystemHelper::setup_advanced_test_files(&server.server_dir)
         .expect("Failed to setup advanced test files");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Sub-test 1: ETag or Last-Modified header present
     let response = client
@@ -264,7 +276,10 @@ async fn symbolic_links() {
     .await
     .expect("Failed to start server");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     let response = client
         .get(server.url_for("/symlink_test.txt"))
@@ -326,7 +341,10 @@ async fn directory_listing_ui() {
     let _test_files = FileSystemHelper::setup_advanced_test_files(&server.server_dir)
         .expect("Failed to setup advanced test files");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Sub-test 1: Subdirectory listing shows files
     let response = client
@@ -384,7 +402,10 @@ async fn advanced_config_features() {
     .await
     .expect("Failed to start server with config");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to create HTTP client");
 
     // Sub-test 1: URL rewrite working
     let response = client

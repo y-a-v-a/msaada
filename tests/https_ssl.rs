@@ -165,6 +165,7 @@ async fn ssl_security_features() {
     // Sub-test 3: HTTP on HTTPS port should fail
     let http_url = server.url().replace("https://", "http://");
     let http_client = reqwest::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("Failed to create HTTP client");

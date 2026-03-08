@@ -44,6 +44,7 @@ impl SslTestHelper {
     /// Create HTTPS client that accepts self-signed certificates
     pub fn create_https_client() -> Result<Client, Box<dyn std::error::Error>> {
         let client = Client::builder()
+            .no_proxy()
             .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(30))
             .build()?;
