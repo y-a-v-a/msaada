@@ -469,16 +469,8 @@ async fn serve_file_with_rewrites(
         }
     };
 
-    let canonical_root = serve_dir.canonicalize().unwrap_or_else(|e| {
-        log::warn!("Failed to canonicalize serve_dir {:?}: {}", serve_dir, e);
-        serve_dir.clone()
-    });
-
-    log::debug!(
-        "Serve dir: {:?}, canonical: {:?}",
-        serve_dir,
-        canonical_root
-    );
+    // The caller guarantees `serve_dir` has already been canonicalized at startup.
+    let canonical_root: &Path = serve_dir.as_path();
 
     let try_open = |candidate: &Path| -> Result<actix_files::NamedFile, io::Error> {
         // Check if candidate is a directory - directories cannot be served as files
@@ -503,13 +495,17 @@ async fn serve_file_with_rewrites(
         let mut file = actix_files::NamedFile::open(candidate)?;
 
         if !symlinks_enabled {
-            if let Ok(resolved) = file.path().canonicalize() {
-                if !resolved.starts_with(&canonical_root) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::PermissionDenied,
-                        "Path escapes serve directory",
-                    ));
-                }
+            let resolved = file.path().canonicalize().map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!("Failed to resolve path for containment check: {}", e),
+                )
+            })?;
+            if !resolved.starts_with(canonical_root) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Path escapes serve directory",
+                ));
             }
         }
 
@@ -869,6 +865,21 @@ async fn main() -> std::io::Result<()> {
         public_path
     } else {
         serve_dir.clone()
+    };
+
+    // Canonicalize the serve root once at startup so the per-request traversal check
+    // has a reliable absolute path to compare against. A fallback to the raw (possibly
+    // relative) path would silently no-op the `starts_with(canonical_root)` guard.
+    let effective_serve_dir = match effective_serve_dir.canonicalize() {
+        Ok(canonical) => canonical,
+        Err(e) => {
+            app_logger.error(&format!(
+                "Failed to canonicalize serve directory {}: {}",
+                effective_serve_dir.display(),
+                e
+            ));
+            exit(1);
+        }
     };
 
     // Setup clipboard manager

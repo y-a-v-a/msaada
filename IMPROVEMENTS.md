@@ -9,7 +9,8 @@ Priority-ordered checklist of improvements based on code review. Items near the 
 
 - [ ] **Gate the POST echo behind a flag; default to 405.** The catch-all `#[post("/{path:.*}")]` handler silently hijacks every POST path. Add an opt-in `--echo-post` (or similar) flag; without it, POST to any path returns `405 Method Not Allowed`. Adjust `--test` / self-test so it implies `--echo-post`.
 
-- [ ] **Fix the traversal-defense fallback in `serve_file_with_rewrites`.** `src/main.rs:417-422` falls back to the raw (possibly relative) `serve_dir` when `canonicalize()` fails, which makes the `starts_with(&canonical_root)` check at `:450` silently no-op. Canonicalize once at startup and fail fast if it errors; don't recompute per request.
+- [x] **Fix the traversal-defense fallback in `serve_file_with_rewrites`.** `src/main.rs:417-422` falls back to the raw (possibly relative) `serve_dir` when `canonicalize()` fails, which makes the `starts_with(&canonical_root)` check at `:450` silently no-op. Canonicalize once at startup and fail fast if it errors; don't recompute per request.
+  Done: `effective_serve_dir` is canonicalized once at startup and the process exits if that fails. The handler no longer re-canonicalizes per request and treats the passed path as already-canonical. The per-file containment check now propagates `canonicalize()` failures as `PermissionDenied` instead of silently skipping them. Added `tests/traversal_defense.rs` with a raw-TCP client (so `..` segments reach the server verbatim) covering literal and percent-encoded traversal plus a symlink-escape case.
 
 - [ ] **Validate `--port`.** `src/main.rs:743` does `.parse::<u16>().unwrap()` — non-numeric input panics with a backtrace. Use `clap::value_parser!(u16).range(1..)` and let clap produce a friendly error.
 
@@ -76,4 +77,5 @@ Priority-ordered checklist of improvements based on code review. Items near the 
 
 - [ ] **Move large test modules into `tests/`.** `config.rs` (~360 lines of tests) and `rewrite.rs` (~550 lines) would read better as integration tests under `tests/`. Shrinks the source files and clarifies what's public API.
 
-- [ ] **Add a traversal-defense test.** After fixing the canonicalization fallback, add a test that requests `../../etc/passwd` (and URL-encoded variants) and asserts 403/404, not file contents.
+- [x] **Add a traversal-defense test.** After fixing the canonicalization fallback, add a test that requests `../../etc/passwd` (and URL-encoded variants) and asserts 403/404, not file contents.
+  Done together with the canonicalization fix — see `tests/traversal_defense.rs`.
