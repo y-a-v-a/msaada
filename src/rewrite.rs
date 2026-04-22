@@ -203,28 +203,31 @@ fn pattern_to_regex(pattern: &str) -> Result<String, String> {
                         // **/ should match zero or more path segments
                         i += 1; // skip the /
 
-                        // Check if ** is at the start of the pattern
                         if regex_pattern == "^" {
-                            // ** at start: **/users should match /users, /api/users, etc.
-                            // Use (?:.*/)? which means optional (anything including / followed by final /)
-                            regex_pattern.push_str("(?:.*/)?");
+                            // ** at start: **/users should match users, /users, /api/users, etc.
+                            // Capture includes only the path segments (no trailing /).
+                            regex_pattern.push_str("(?:(.*)/)?");
+                        } else if regex_pattern.ends_with('/') {
+                            // Middle /**/: rewind the preceding '/' so the entire
+                            // "/segments/" chunk can be optional, and the capture
+                            // contains just the segments (no surrounding slashes).
+                            regex_pattern.pop();
+                            regex_pattern.push_str("(?:/(.+?))?/");
                         } else {
-                            // ** in middle: /api/**/users
-                            // Should match: /api/users, /api/v1/users, /api/v1/v2/users
-                            // Use (?:.+/)? which means: optional (one-or-more-chars followed by /)
-                            regex_pattern.push_str("(?:.+/)?");
+                            // **/ without a preceding literal / (unusual).
+                            regex_pattern.push_str("((?:.*/)?)");
                         }
                     } else {
-                        // ** at end or middle without /
-                        regex_pattern.push_str(".*");
+                        // ** at end or middle without /: capture the rest.
+                        regex_pattern.push_str("(.*)");
                     }
                 } else {
-                    // Single * matches within segment
-                    regex_pattern.push_str("[^/]*");
+                    // Single * matches within segment.
+                    regex_pattern.push_str("([^/]*)");
                 }
             }
             '?' => {
-                regex_pattern.push_str("[^/]");
+                regex_pattern.push_str("([^/])");
             }
             // Keep regex special chars from brace expansion
             '(' | ')' | '|' => {
