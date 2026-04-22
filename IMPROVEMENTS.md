@@ -4,7 +4,8 @@ Priority-ordered checklist of improvements based on code review. Items near the 
 
 ## Correctness & Security
 
-- [ ] **Cap POST body size.** `handle_post` (`src/main.rs:201`, `:230`, `:269`) drains `web::Payload` into a `BytesMut` with no ceiling — a single large POST can OOM the process. Add a `PayloadConfig` limit (e.g. 4 MiB default) and a CLI override.
+- [x] **Cap POST body size.** `handle_post` (`src/main.rs:201`, `:230`, `:269`) drains `web::Payload` into a `BytesMut` with no ceiling — a single large POST can OOM the process. Add a `PayloadConfig` limit (e.g. 4 MiB default) and a CLI override.
+  Done: introduced `PostSizeLimit(usize)` newtype (default 4 MiB) registered as `web::Data` on the app. `handle_post` now streams each branch (JSON / form / text / binary / multipart fields) through a shared `drain_with_limit` helper that returns `413 Payload Too Large` once the cap is exceeded. CLI override is `--max-post-size <BYTES>`. All 133 unit tests and the POST integration suite pass.
 
 - [ ] **Gate the POST echo behind a flag; default to 405.** The catch-all `#[post("/{path:.*}")]` handler silently hijacks every POST path. Add an opt-in `--echo-post` (or similar) flag; without it, POST to any path returns `405 Method Not Allowed`. Adjust `--test` / self-test so it implies `--echo-post`.
 

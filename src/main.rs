@@ -104,14 +104,46 @@ where
     }
 }
 
+/// Cap on the total in-memory bytes we'll buffer per POST request.
+#[derive(Clone, Copy)]
+pub struct PostSizeLimit(pub usize);
+
+pub const DEFAULT_POST_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+
+fn payload_too_large(limit: usize) -> HttpResponse {
+    HttpResponse::PayloadTooLarge().json(json!({
+        "error": format!("request body exceeds max-post-size of {} bytes", limit)
+    }))
+}
+
+/// Drain a payload stream into a BytesMut, rejecting at the size cap.
+/// Returns Ok(Some(body)) on success, Ok(None) if the cap was hit (caller must
+/// return the 413 response), and Err on a read error (caller returns 400).
+async fn drain_with_limit<S, E>(stream: &mut S, limit: usize) -> Result<Option<web::BytesMut>, E>
+where
+    S: futures_util::Stream<Item = Result<web::Bytes, E>> + Unpin,
+{
+    let mut body = web::BytesMut::new();
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk?;
+        if body.len().saturating_add(bytes.len()) > limit {
+            return Ok(None);
+        }
+        body.extend_from_slice(&bytes);
+    }
+    Ok(Some(body))
+}
+
 /// Handler for POST requests - catches all POST requests
 #[post("/{path:.*}")]
 async fn handle_post(
     path: web::Path<String>,
     mut payload: web::Payload,
     headers: HttpRequest,
+    size_limit: web::Data<PostSizeLimit>,
 ) -> Result<impl Responder, Error> {
     let path_str = path.into_inner();
+    let limit = size_limit.0;
     log::info!("Received POST request to path: {}", path_str);
 
     // Extract content type
@@ -135,6 +167,8 @@ async fn handle_post(
                 let mut multipart = Multipart::new(headers.headers(), payload);
                 let mut files = Vec::new();
                 let mut form_fields = HashMap::new();
+                // Total of all file sizes + buffered form-field bytes across the request.
+                let mut total_seen: usize = 0;
 
                 while let Some(item) = multipart.next().await {
                     match item {
@@ -149,10 +183,16 @@ async fn handle_post(
                             // If it's a file, just store the filename
                             if let Some(fname) = filename {
                                 // Read file data but don't store it (just acknowledge receipt)
-                                let mut file_size = 0;
+                                let mut file_size: usize = 0;
                                 while let Some(chunk) = field.next().await {
                                     match chunk {
-                                        Ok(data) => file_size += data.len(),
+                                        Ok(data) => {
+                                            file_size = file_size.saturating_add(data.len());
+                                            total_seen = total_seen.saturating_add(data.len());
+                                            if total_seen > limit {
+                                                return Ok(payload_too_large(limit));
+                                            }
+                                        }
                                         Err(e) => {
                                             log::warn!("Error reading file chunk: {}", e);
                                             break;
@@ -169,7 +209,13 @@ async fn handle_post(
                                 let mut data = Vec::new();
                                 while let Some(chunk) = field.next().await {
                                     match chunk {
-                                        Ok(bytes) => data.extend_from_slice(&bytes),
+                                        Ok(bytes) => {
+                                            total_seen = total_seen.saturating_add(bytes.len());
+                                            if total_seen > limit {
+                                                return Ok(payload_too_large(limit));
+                                            }
+                                            data.extend_from_slice(&bytes);
+                                        }
                                         Err(e) => {
                                             log::warn!("Error reading field chunk: {}", e);
                                             break;
@@ -198,19 +244,16 @@ async fn handle_post(
 
             // Handle application/json
             (mime::APPLICATION, mime::JSON) => {
-                let mut body = web::BytesMut::new();
-
-                while let Some(chunk) = payload.next().await {
-                    match chunk {
-                        Ok(bytes) => body.extend_from_slice(&bytes),
-                        Err(e) => {
-                            log::error!("Error reading JSON payload: {}", e);
-                            return Ok(HttpResponse::BadRequest().json(json!({
-                                "error": format!("Failed to read request body: {}", e)
-                            })));
-                        }
+                let body = match drain_with_limit(&mut payload, limit).await {
+                    Ok(Some(b)) => b,
+                    Ok(None) => return Ok(payload_too_large(limit)),
+                    Err(e) => {
+                        log::error!("Error reading JSON payload: {}", e);
+                        return Ok(HttpResponse::BadRequest().json(json!({
+                            "error": format!("Failed to read request body: {}", e)
+                        })));
                     }
-                }
+                };
 
                 match serde_json::from_slice::<Value>(&body) {
                     Ok(json_data) => {
@@ -227,19 +270,16 @@ async fn handle_post(
 
             // Handle application/x-www-form-urlencoded
             (mime::APPLICATION, sub) if sub == "x-www-form-urlencoded" => {
-                let mut body = web::BytesMut::new();
-
-                while let Some(chunk) = payload.next().await {
-                    match chunk {
-                        Ok(bytes) => body.extend_from_slice(&bytes),
-                        Err(e) => {
-                            log::error!("Error reading form payload: {}", e);
-                            return Ok(HttpResponse::BadRequest().json(json!({
-                                "error": format!("Failed to read request body: {}", e)
-                            })));
-                        }
+                let body = match drain_with_limit(&mut payload, limit).await {
+                    Ok(Some(b)) => b,
+                    Ok(None) => return Ok(payload_too_large(limit)),
+                    Err(e) => {
+                        log::error!("Error reading form payload: {}", e);
+                        return Ok(HttpResponse::BadRequest().json(json!({
+                            "error": format!("Failed to read request body: {}", e)
+                        })));
                     }
-                }
+                };
 
                 let body_str = String::from_utf8_lossy(&body);
                 let mut form_fields = HashMap::new();
@@ -266,19 +306,16 @@ async fn handle_post(
 
             // Handle text/* content type (plain text)
             (mime::TEXT, _) => {
-                let mut body = web::BytesMut::new();
-
-                while let Some(chunk) = payload.next().await {
-                    match chunk {
-                        Ok(bytes) => body.extend_from_slice(&bytes),
-                        Err(e) => {
-                            log::error!("Error reading text payload: {}", e);
-                            return Ok(HttpResponse::BadRequest().json(json!({
-                                "error": format!("Failed to read request body: {}", e)
-                            })));
-                        }
+                let body = match drain_with_limit(&mut payload, limit).await {
+                    Ok(Some(b)) => b,
+                    Ok(None) => return Ok(payload_too_large(limit)),
+                    Err(e) => {
+                        log::error!("Error reading text payload: {}", e);
+                        return Ok(HttpResponse::BadRequest().json(json!({
+                            "error": format!("Failed to read request body: {}", e)
+                        })));
                     }
-                }
+                };
 
                 match String::from_utf8(body.to_vec()) {
                     Ok(text) => {
@@ -292,6 +329,24 @@ async fn handle_post(
 
             // Handle all other content types as binary
             _ => {
+                // Drain-and-discard to enforce the cap even for binary payloads.
+                let mut total: usize = 0;
+                while let Some(chunk) = payload.next().await {
+                    match chunk {
+                        Ok(bytes) => {
+                            total = total.saturating_add(bytes.len());
+                            if total > limit {
+                                return Ok(payload_too_large(limit));
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Error reading binary payload: {}", e);
+                            return Ok(HttpResponse::BadRequest().json(json!({
+                                "error": format!("Failed to read request body: {}", e)
+                            })));
+                        }
+                    }
+                }
                 response_data["binary_data"] = json!("<binary data received>");
             }
         }
@@ -733,6 +788,13 @@ async fn main() -> std::io::Result<()> {
                 .action(clap::ArgAction::SetTrue)
                 .help("Use Last-Modified header instead of ETag for HTTP caching"),
         )
+        .arg(
+            Arg::new("max-post-size")
+                .long("max-post-size")
+                .value_name("BYTES")
+                .value_parser(clap::value_parser!(usize))
+                .help("Maximum POST request body size in bytes (default: 4194304 = 4 MiB)"),
+        )
         .get_matches();
 
     // Initialize the logger
@@ -783,6 +845,10 @@ async fn main() -> std::io::Result<()> {
     let port_switching_disabled = matches.get_flag("no-port-switching");
     let symlinks_enabled = matches.get_flag("symlinks");
     let etag_disabled = matches.get_flag("no-etag");
+    let max_post_size = matches
+        .get_one::<usize>("max-post-size")
+        .copied()
+        .unwrap_or(DEFAULT_POST_SIZE_LIMIT);
 
     // Merge CLI flags with configuration (CLI flags override config)
     let effective_single_page_app = single_page_app || configuration.render_single;
@@ -1006,6 +1072,7 @@ async fn main() -> std::io::Result<()> {
             // This matches Vercel's serve behavior: no CORS headers without the flag
             // Same-origin requests work naturally without CORS middleware
             let mut app = App::new()
+                .app_data(web::Data::new(PostSizeLimit(max_post_size)))
                 .wrap(CustomLogger)
                 .wrap(headers)
                 .wrap(actix_web::middleware::Condition::new(
