@@ -1098,7 +1098,7 @@ async fn main() -> std::io::Result<()> {
 
     // Bind server with or without TLS
     let server = if let Some(rustls_config) = rustls_config {
-        server.bind_rustls_021(("0.0.0.0", actual_port), rustls_config)?
+        server.bind_rustls_0_23(("0.0.0.0", actual_port), rustls_config)?
     } else {
         server.bind(("0.0.0.0", actual_port))?
     };

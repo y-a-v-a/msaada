@@ -1,11 +1,13 @@
 // src/tls.rs
 // TLS/SSL certificate loading and configuration
 
-use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::ServerConfig;
+use rustls_pemfile::{certs, private_key};
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 
 #[derive(Debug, Clone)]
 pub enum CertFormat {
@@ -109,6 +111,7 @@ impl TlsConfig {
 
     /// Load server configuration for rustls
     pub async fn load_server_config(&self) -> Result<ServerConfig, TlsError> {
+        install_default_crypto_provider();
         match self.format {
             CertFormat::Pem => self.load_pem_config().await,
             CertFormat::Pkcs12 => self.load_pkcs12_config().await,
@@ -120,13 +123,11 @@ impl TlsConfig {
         // Load certificate chain
         let cert_file = File::open(&self.cert_path)?;
         let mut cert_reader = BufReader::new(cert_file);
-        let cert_chain = certs(&mut cert_reader)
+        let cert_chain: Vec<CertificateDer<'static>> = certs(&mut cert_reader)
+            .collect::<io::Result<Vec<_>>>()
             .map_err(|e| {
                 TlsError::InvalidCertificate(format!("Failed to parse certificates: {}", e))
-            })?
-            .into_iter()
-            .map(Certificate)
-            .collect::<Vec<_>>();
+            })?;
 
         if cert_chain.is_empty() {
             return Err(TlsError::InvalidCertificate(
@@ -134,34 +135,19 @@ impl TlsConfig {
             ));
         }
 
-        // Load private key
+        // Load private key (private_key() tries PKCS8, PKCS1, and SEC1 formats)
         let key_path = self.key_path.as_ref().unwrap(); // Already validated in from_args
         let key_file = File::open(key_path)?;
         let mut key_reader = BufReader::new(key_file);
 
-        // Try PKCS8 first, then RSA
-        let private_key = pkcs8_private_keys(&mut key_reader)
+        let private_key = private_key(&mut key_reader)
             .map_err(|e| {
-                TlsError::InvalidPrivateKey(format!("Failed to parse PKCS8 private key: {}", e))
+                TlsError::InvalidPrivateKey(format!("Failed to parse private key: {}", e))
             })?
-            .into_iter()
-            .map(PrivateKey)
-            .next()
-            .or_else(|| {
-                // Reset file reader and try RSA format
-                let key_file = File::open(key_path).ok()?;
-                let mut key_reader = BufReader::new(key_file);
-                rsa_private_keys(&mut key_reader)
-                    .ok()?
-                    .into_iter()
-                    .map(PrivateKey)
-                    .next()
-            })
             .ok_or_else(|| TlsError::InvalidPrivateKey("No valid private key found".to_string()))?;
 
         // Create server configuration
         let config = ServerConfig::builder()
-            .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(cert_chain, private_key)?;
 
@@ -185,51 +171,46 @@ impl TlsConfig {
             String::new()
         };
 
-        // Parse PKCS12
-        let pfx = p12::PFX::parse(&p12_data)
+        // Parse and decrypt PKCS12 (password check happens inside)
+        let keystore = p12_keystore::KeyStore::from_pkcs12(&p12_data, &passphrase)
             .map_err(|e| TlsError::Pkcs12Error(format!("Failed to parse PKCS12 file: {}", e)))?;
 
-        // Verify MAC (password authentication)
-        if !pfx.verify_mac(&passphrase) {
-            return Err(TlsError::InvalidPassphrase(
-                "Invalid passphrase for PKCS12 file".to_string(),
-            ));
-        }
+        // Extract the first private key chain (key + cert chain)
+        let (_alias, key_chain) = keystore.private_key_chain().ok_or_else(|| {
+            TlsError::InvalidPrivateKey("No private key found in PKCS12 file".to_string())
+        })?;
 
-        // Extract certificates
-        let cert_ders = pfx
-            .cert_bags(&passphrase)
-            .map_err(|e| TlsError::Pkcs12Error(format!("Failed to extract certificates: {}", e)))?;
+        let cert_chain: Vec<CertificateDer<'static>> = key_chain
+            .chain()
+            .iter()
+            .map(|c| CertificateDer::from(c.as_der().to_vec()))
+            .collect();
 
-        if cert_ders.is_empty() {
+        if cert_chain.is_empty() {
             return Err(TlsError::InvalidCertificate(
                 "No certificates found in PKCS12 file".to_string(),
             ));
         }
 
-        let cert_chain: Vec<Certificate> = cert_ders.into_iter().map(Certificate).collect();
-
-        // Extract private keys
-        let key_ders = pfx
-            .key_bags(&passphrase)
-            .map_err(|e| TlsError::Pkcs12Error(format!("Failed to extract private keys: {}", e)))?;
-
-        if key_ders.is_empty() {
-            return Err(TlsError::InvalidPrivateKey(
-                "No private key found in PKCS12 file".to_string(),
-            ));
-        }
-
-        let private_key = PrivateKey(key_ders[0].clone());
+        // p12-keystore unwraps the shrouded key bag to PKCS#8 DER
+        let private_key =
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_chain.key().to_vec()));
 
         // Create server configuration
         let config = ServerConfig::builder()
-            .with_safe_defaults()
             .with_no_client_auth()
             .with_single_cert(cert_chain, private_key)?;
 
         Ok(config)
     }
+}
+
+/// Install the ring-based default CryptoProvider exactly once per process.
+fn install_default_crypto_provider() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
 }
 
 /// Utility function to validate SSL certificate arguments
