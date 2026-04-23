@@ -675,7 +675,8 @@ async fn main() -> std::io::Result<()> {
                 .short('p')
                 .long("port")
                 .required(true)
-                .help("Port number to serve on (e.g., 3000, 8080)"),
+                .value_parser(clap::value_parser!(u16).range(1..))
+                .help("Port number to serve on (1-65535, e.g., 3000, 8080)"),
         )
         .arg(
             Arg::new("directory")
@@ -802,8 +803,7 @@ async fn main() -> std::io::Result<()> {
     // Log startup information using new logger
     app_logger.startup_info(PKG_NAME, PKG_VERSION, PKG_AUTHORS);
 
-    let port_arg = matches.get_one::<String>("port").unwrap();
-    let requested_port = port_arg.parse::<u16>().unwrap();
+    let requested_port: u16 = *matches.get_one::<u16>("port").unwrap();
 
     let dir_arg = matches.get_one::<String>("directory").unwrap();
     let dir = Path::new(&dir_arg);

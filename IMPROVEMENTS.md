@@ -12,7 +12,8 @@ Priority-ordered checklist of improvements based on code review. Items near the 
 - [x] **Fix the traversal-defense fallback in `serve_file_with_rewrites`.** `src/main.rs:417-422` falls back to the raw (possibly relative) `serve_dir` when `canonicalize()` fails, which makes the `starts_with(&canonical_root)` check at `:450` silently no-op. Canonicalize once at startup and fail fast if it errors; don't recompute per request.
   Done: `effective_serve_dir` is canonicalized once at startup and the process exits if that fails. The handler no longer re-canonicalizes per request and treats the passed path as already-canonical. The per-file containment check now propagates `canonicalize()` failures as `PermissionDenied` instead of silently skipping them. Added `tests/traversal_defense.rs` with a raw-TCP client (so `..` segments reach the server verbatim) covering literal and percent-encoded traversal plus a symlink-escape case.
 
-- [ ] **Validate `--port`.** `src/main.rs:743` does `.parse::<u16>().unwrap()` — non-numeric input panics with a backtrace. Use `clap::value_parser!(u16).range(1..)` and let clap produce a friendly error.
+- [x] **Validate `--port`.** `src/main.rs:743` does `.parse::<u16>().unwrap()` — non-numeric input panics with a backtrace. Use `clap::value_parser!(u16).range(1..)` and let clap produce a friendly error.
+  Done: `--port` now uses `clap::value_parser!(u16).range(1..)` and the `unwrap`-based string parse is gone. Bad input (`abc`, `0`, `65536`) exits with a clear `error: invalid value '...' for '--port <port>': ...` message and no backtrace.
 
 - [ ] **Encode TLS format invariants in the type.** `src/tls.rs:138` `self.key_path.as_ref().unwrap()` relies on a "validated in `from_args`" comment. Replace `CertFormat` + optional `key_path` with an enum whose variants carry their own data (`Pem { cert, key }`, `Pkcs12 { cert, passphrase }`). The unwrap disappears.
 
